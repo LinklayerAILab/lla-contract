@@ -128,6 +128,13 @@ describe("LLAVaultBase", function () {
   });
 
   describe("LLAToken Update", function () {
+    it("Should revert if llaToken is zero address", async function () {
+      await expect(
+        llaVault.connect(tokenManager).updateLLAToken(ethers.ZeroAddress)
+      )
+        .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
     it("Should update LLA token address", async function () {
       // Update the LLA token address and verify
       const newTokenFactory = await ethers.getContractFactory("LLAToken");
@@ -291,18 +298,7 @@ describe("LLAVaultBase", function () {
         .withArgs(mockToken3.target);
     });
 
-    it("Should revert if llaToken is not initialized", async function () {
-      // Attempt to deposit tokens when llaToken is not initialized and expect a revert
-      const amount = 100;
-      await mockToken.connect(owner).approve(llaVault.target, amount);
-      await llaVault.connect(tokenManager).updateLLAToken(ethers.ZeroAddress);
-      await expect(llaVault.connect(owner).deposit(mockToken.target, amount))
-        .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
-        .withArgs(ethers.ZeroAddress);
-      await llaVault.connect(tokenManager).updateLLAToken(mockToken.target);
-    });
-
-    it("Should revert if transfer fails", async function () {
+    it("Deposit Should revert if transfer fails", async function () {
       // Attempt to deposit tokens without approval and expect a revert
       const amount = 100;
       await expect(llaVault.connect(addr2).deposit(mockToken.target, amount))
@@ -320,17 +316,6 @@ describe("LLAVaultBase", function () {
   });
 
   describe("Withdrawal", function () {
-    it("Should withdraw tokens", async function () {
-      // Withdraw tokens and verify the balance
-      await expect(
-        llaVault
-          .connect(multiSig)
-          .withdraw(mockToken.target, addr1.address, transferAmount)
-      )
-        .to.be.revertedWithCustomError(mockToken, "ERC20InsufficientAllowance")
-        .withArgs(llaVault.target, 0, transferAmount);
-    });
-
     it("Should revert if non-multiSig tries to withdraw", async function () {
       // Attempt to withdraw tokens from a non-multiSig account and expect a revert
       const amount = 100;
@@ -353,16 +338,14 @@ describe("LLAVaultBase", function () {
         .withArgs(0);
     });
 
-    it("Should revert if transfer fails", async function () {
+    it("Withdrawal Should revert if transfer fails", async function () {
       // Attempt to withdraw more tokens than available and expect a revert
       const amount = ethers.MaxUint256;
       await expect(
         llaVault
           .connect(multiSig)
           .withdraw(mockToken.target, addr1.address, amount)
-      )
-        .to.be.revertedWithCustomError(mockToken, "ERC20InsufficientAllowance")
-        .withArgs(llaVault.target, 0, amount);
+      ).to.be.revertedWithCustomError(llaVault, "WithdrawalLimitExceeded");
     });
 
     it("Should revert if token is unsupported", async function () {
@@ -387,6 +370,27 @@ describe("LLAVaultBase", function () {
       )
         .to.be.revertedWithCustomError(llaVault, "UnsupportedToken")
         .withArgs(mockToken3.target);
+    });
+
+    it("Should withdraw tokens to an address", async function () {
+      // Withdraw tokens to an address and verify the balance
+      // The balance of the account before the deposit
+      const oldBalance = await mockToken.balanceOf(addr1.address);
+      // The balance of the contract before the deposit
+      const contractOldBalance = await mockToken.balanceOf(llaVault.target);
+      // Withdraw tokens
+      await llaVault
+        .connect(multiSig)
+        .withdraw(mockToken.target, addr1.address, transferAmount);
+      // The balance of the account after the deposit
+      const newBalance = await mockToken.balanceOf(addr1.address);
+      // The balance of the contract after the deposit
+      const contractNewBalance = await mockToken.balanceOf(llaVault.target);
+      // Withdraw tokens and verify the balance
+      expect(newBalance).to.equal(BigInt(transferAmount) + oldBalance);
+      expect(contractNewBalance).to.equal(
+        contractOldBalance - BigInt(transferAmount)
+      );
     });
   });
 
@@ -413,6 +417,99 @@ describe("LLAVaultBase", function () {
       // Verify that new users have no transaction records
       const newUser = addr2;
       await expect(llaVault.payments(newUser.address, 0)).to.be.reverted;
+    });
+  });
+
+  describe("Emergency Withdrawal", function () {
+    it("Should revert emergency withdrawal if not enabled", async function () {
+      expect(await llaVault.connect(owner).emergencyWithdrawalEnabled()).to.be
+        .false;
+      await expect(
+        llaVault.connect(owner).emergencyWithdraw(mockToken.target)
+      ).to.be.revertedWithCustomError(
+        llaVault,
+        "EmergencyWithdrawalNotEnabled"
+      );
+    });
+    it("Should enable emergency withdrawal", async function () {
+      await expect(llaVault.connect(owner).enableEmergencyWithdrawal()).to.emit(
+        llaVault,
+        "EmergencyWithdrawalRequested"
+      );
+      expect(await llaVault.emergencyWithdrawalEnabled()).to.be.true;
+    });
+
+    it("Should revert emergency withdrawal if delay not met", async function () {
+      await llaVault.connect(owner).enableEmergencyWithdrawal();
+      await expect(
+        llaVault.connect(owner).emergencyWithdraw(mockToken.target)
+      ).to.be.revertedWithCustomError(llaVault, "EmergencyWithdrawalTooEarly");
+    });
+
+    it("Should execute emergency withdrawal after delay", async function () {
+      const amount = 1000;
+      expect(await llaVault.connect(owner).emergencyWithdrawalEnabled()).to.be
+        .true;
+      await mockToken.connect(minter).mint(llaVault.target, amount);
+      await llaVault.connect(owner).enableEmergencyWithdrawal();
+
+      // Fast forward time
+      await ethers.provider.send("evm_increaseTime", [24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine", []);
+
+      await expect(llaVault.connect(owner).emergencyWithdraw(mockToken.target))
+        .to.emit(llaVault, "EmergencyWithdrawalExecuted")
+        .withArgs(mockToken.target, await mockToken.balanceOf(llaVault.target));
+    });
+  });
+
+  describe("Withdrawal Limits", function () {
+    it("Should enforce withdrawal delay", async function () {
+      const amount = 100;
+      await mockToken.connect(minter).mint(llaVault.target, amount * 2);
+
+      await llaVault
+        .connect(multiSig)
+        .withdraw(mockToken.target, addr1.address, amount);
+
+      await expect(
+        llaVault
+          .connect(multiSig)
+          .withdraw(mockToken.target, addr1.address, amount)
+      ).to.be.revertedWithCustomError(llaVault, "WithdrawalTooFrequent");
+    });
+
+    // TODO 需要验证下面的测试用例
+    it("Should allow withdrawal after delay period", async function () {
+      const amount = 100;
+      await mockToken.connect(minter).mint(llaVault.target, amount);
+
+      // Fast forward time
+      await ethers.provider.send("evm_increaseTime", [24 * 60 * 60 + 1]);
+      await ethers.provider.send("evm_mine", []);
+
+      await expect(
+        llaVault
+          .connect(multiSig)
+          .withdraw(mockToken.target, addr1.address, amount)
+      ).to.emit(llaVault, "Withdrawal");
+    });
+
+    it("Should enforce maximum withdrawal amount", async function () {
+      const maxAmount = await llaVault.MAX_WITHDRAWAL_AMOUNT();
+      const exceedAmount = maxAmount + BigInt(1);
+      await expect(
+        llaVault
+          .connect(multiSig)
+          .withdraw(mockToken.target, addr1.address, exceedAmount)
+      ).to.be.revertedWithCustomError(llaVault, "WithdrawalLimitExceeded");
+    });
+  });
+
+  describe("String Utils", function () {
+    it("Should correctly check if string is empty", async function () {
+      expect(await llaVault.isEmpty("")).to.be.true;
+      expect(await llaVault.isEmpty("test")).to.be.false;
     });
   });
 });

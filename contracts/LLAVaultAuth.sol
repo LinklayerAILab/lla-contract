@@ -16,6 +16,7 @@ contract LLAVaultAuth is AccessControlUpgradeable,UUPSUpgradeable {
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
     // TOKEN_MANAGER_ROLE
     bytes32 public constant TOKEN_MANAGER_ROLE = keccak256("TOKEN_MANAGER_ROLE");
+    error InvalidImplementationAddress(address newImplementation);
 
     // Initialization function
     function initializeAuth(
@@ -59,5 +60,9 @@ contract LLAVaultAuth is AccessControlUpgradeable,UUPSUpgradeable {
      */
     function _authorizeUpgrade(
         address _newImplementation
-    ) internal override onlyRole(UPGRADER_ROLE) {}
+    ) internal view override onlyRole(UPGRADER_ROLE) {
+       if(_newImplementation == address(0)){
+         revert InvalidImplementationAddress(_newImplementation);
+       }
+    }
 }
