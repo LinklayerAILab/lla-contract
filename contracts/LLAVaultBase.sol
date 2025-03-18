@@ -15,7 +15,8 @@ import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/U
 import {LLAVaultAuth} from "./LLAVaultAuth.sol";
 import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
-
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 /**
  * @notice Structure for storing payment information
  * @dev Used to track all payment transactions in the vault
@@ -26,7 +27,6 @@ struct Payment {
     uint256 timestamp;
     uint256 amount;
     address token;
-    bool isWithdrawn;
 }
 
 contract LLAVaultBase is
@@ -36,6 +36,7 @@ contract LLAVaultBase is
     ReentrancyGuardUpgradeable,
     LLAVaultAuth
 {
+    using SafeERC20 for IERC20;
     // State Variables
     /// @notice The multi-signature wallet address used for administrative operations
     /// @dev This address has special permissions for withdrawals and critical operations
@@ -217,16 +218,12 @@ contract LLAVaultBase is
                 to: address(this),
                 timestamp: block.timestamp,
                 amount: _amount,
-                token: _token,
-                isWithdrawn: false
+                token: _token
             })
         );
-
+        IERC20 token = IERC20(_token);
         // External interactions
-        if (!ERC20(_token).transferFrom(msg.sender, multiSig, _amount)) {
-            revert TransferFailed(_token, msg.sender, multiSig, _amount);
-        }
-        
+        token.safeTransferFrom(msg.sender, multiSig, _amount);
         emit PaymentDeposited(msg.sender, multiSig, block.timestamp, _amount, _token);
         IERC20Mintable(llaToken).mint(msg.sender, _amount * 1e18);
     }

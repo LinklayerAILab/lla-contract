@@ -1,6 +1,6 @@
 import { expect } from "chai";
 import { LLAToken } from "../typechain-types";
-import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { SignerWithAddress } from "@nomiclabs/hardhat-ethers/signers";
 import { ethers, upgrades } from "hardhat";
 import { ContractFactory } from "ethers";
 

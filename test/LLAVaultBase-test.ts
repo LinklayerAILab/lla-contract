@@ -302,7 +302,6 @@ describe("LLAVaultBase", function () {
      expect(payment.payer).to.equal(addr1.address);
      expect(payment.amount).to.equal(payAmount);
      expect(payment.token).to.equal(LLAProxyAddress);
-     expect(payment.isWithdrawn).to.equal(false);
 
      const latestBlock = await ethers.provider.getBlock("latest");
      expect(payment.timestamp).to.equal(latestBlock?.timestamp);

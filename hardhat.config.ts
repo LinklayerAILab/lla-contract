@@ -3,7 +3,6 @@ require("@chainlink/env-enc").config();
 import "@nomicfoundation/hardhat-toolbox";
 // import "@nomicfoundation/hardhat-foundry";
 import "@openzeppelin/hardhat-upgrades";
-
 import "@nomicfoundation/hardhat-ethers";
 import "@nomicfoundation/hardhat-chai-matchers";
 console.log("OWNER_ADDR:", process.env.OWNER_ADDR);
@@ -12,7 +11,7 @@ console.log("MINTER_ADDR:", process.env.MINTER_ADDR);
 console.log("UPGRADER_ADDR:", process.env.UPGRADER_ADDR);
 console.log("TOKENMANAGER_ADDR:", process.env.TOKENMANAGER_ADDR);
 console.log("MULTISIG_ADDR:", process.env.MULTISIG_ADDR);
-
+const SEPOLIA_URL = "https://data-seed-prebsc-1-s1.binance.org:8545/";
 const {
   OWNER_ADDR,
   PAUSER_ADDR,
@@ -22,7 +21,6 @@ const {
   MULTISIG_ADDR,
   TESTADDR_1,
   TESTADDR_2,
-  SEPOLIA_URL,
 } = process.env as {
   OWNER_ADDR: string;
   PAUSER_ADDR: string;
@@ -36,9 +34,11 @@ const {
 };
 const config: HardhatUserConfig = {
   solidity: "0.8.28",
+
   networks: {
     sepolia: {
-      url: SEPOLIA_URL + "/v3/" + "574138be66974922bc4c949d5b1282ae",
+      // url: SEPOLIA_URL + "/v3/" + "574138be66974922bc4c949d5b1282ae",
+      url: SEPOLIA_URL,
       accounts: [
         OWNER_ADDR,
         PAUSER_ADDR,
