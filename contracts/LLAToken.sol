@@ -33,6 +33,8 @@ contract LLAToken is
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
     /// @notice Current version of the contract
     string public constant version = "v1.0";
+    // @notice Total supply of LLA tokens
+    uint256 public constant TOTAL_SUPPLY = 100_0000_0000 * 1e18;
 
     /// @notice Error thrown when an invalid address is provided
     /// @param addr The invalid address that was provided

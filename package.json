@@ -9,6 +9,7 @@
   "license": "ISC",
   "description": "",
   "devDependencies": {
+    "@chainlink/env-enc": "^1.0.5",
     "@nomicfoundation/edr-darwin-x64": "^0.7.0",
     "@nomicfoundation/hardhat-chai-matchers": "^2.0.0",
     "@nomicfoundation/hardhat-ethers": "^3.0.0",
@@ -26,6 +27,7 @@
     "@types/mocha": ">=9.1.0",
     "@types/node": ">=18.0.0",
     "chai": "^4.2.0",
+    "dotenv": "^16.4.7",
     "ethers": "^6.4.0",
     "hardhat": "^2.22.19",
     "hardhat-gas-reporter": "^1.0.8",

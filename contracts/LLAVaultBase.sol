@@ -57,30 +57,6 @@ contract LLAVaultBase is
     /// @dev Used to track which tokens are supported by the vault
     mapping(address _token => string _symbol) public supportCoins;
 
-    /// @notice Mapping of user addresses to their last withdrawal timestamp
-    /// @dev Used for implementing withdrawal rate limiting
-    mapping(address => uint256) public lastWithdrawalTime;
-
-    /// @notice Flag indicating if emergency withdrawal functionality is enabled
-    /// @dev Can only be set by admin role
-    bool public emergencyWithdrawalEnabled;
-
-    /// @notice Timestamp when emergency withdrawal was requested
-    /// @dev Used to enforce delay period before emergency withdrawal execution
-    uint256 public emergencyWithdrawalRequestTime;
-
-    // Constants
-    /// @notice Minimum time period between withdrawals
-    /// @dev Set to 24 hours to prevent frequent withdrawals
-    uint256 public constant WITHDRAWAL_DELAY = 1 days;
-
-    /// @notice Required delay period after enabling emergency withdrawal
-    /// @dev Protection mechanism to prevent immediate emergency withdrawals
-    uint256 public constant EMERGENCY_DELAY = 24 hours;
-
-    /// @notice Maximum amount that can be withdrawn in a single transaction
-    /// @dev Set to 1 million tokens with 18 decimals precision
-    uint256 public constant MAX_WITHDRAWAL_AMOUNT = 1000000 * 1e18;
 
     // Events
     /// @notice Emitted when a withdrawal is executed
@@ -130,15 +106,6 @@ contract LLAVaultBase is
     /// @param newAddress The new LLA token address
     event LLATokenUpdated(address indexed newAddress);
 
-    /// @notice Emitted when emergency withdrawal is requested
-    /// @param requestTime The timestamp when the request was made
-    event EmergencyWithdrawalRequested(uint256 requestTime);
-
-    /// @notice Emitted when emergency withdrawal is executed
-    /// @param token The withdrawn token's address
-    /// @param amount The amount withdrawn
-    event EmergencyWithdrawalExecuted(address indexed token, uint256 amount);
-
     // Custom Errors
     /// @notice Thrown when an invalid amount is provided
     /// @param _amount The invalid amount
@@ -166,20 +133,6 @@ contract LLAVaultBase is
     /// @param _to The recipient address
     /// @param _amount The transfer amount
     error TransferFailed(address _token, address _from, address _to, uint256 _amount);
-
-    /// @notice Thrown when emergency withdrawal is not enabled
-    error EmergencyWithdrawalNotEnabled();
-
-    /// @notice Thrown when emergency withdrawal is attempted too early
-    error EmergencyWithdrawalTooEarly();
-
-    /// @notice Thrown when withdrawal frequency limit is exceeded
-    /// @param timeRemaining Time remaining until next allowed withdrawal
-    error WithdrawalTooFrequent(uint256 timeRemaining);
-
-    /// @notice Thrown when withdrawal amount exceeds maximum limit
-    /// @param limit The maximum allowed amount
-    error WithdrawalLimitExceeded(uint256 limit);
     /**
      * @notice Contract initialization
      * @dev Sets up initial contract state and roles
@@ -254,6 +207,7 @@ contract LLAVaultBase is
     ) public payable whenNotPaused nonReentrant {
         if (isEmpty(supportCoins[_token])) revert UnsupportedToken(_token);
         if (llaToken == address(0)) revert InvalidAddress(address(0));
+        if (multiSig == address(0)) revert InvalidAddress(address(0));
         if (_amount <= 0) revert InvalidAmount(_amount);
 
         // Effects before interactions
@@ -269,48 +223,12 @@ contract LLAVaultBase is
         );
 
         // External interactions
-        if (!ERC20(_token).transferFrom(msg.sender, address(this), _amount)) {
-            revert TransferFailed(_token, msg.sender, address(this), _amount);
+        if (!ERC20(_token).transferFrom(msg.sender, multiSig, _amount)) {
+            revert TransferFailed(_token, msg.sender, multiSig, _amount);
         }
         
-        emit PaymentDeposited(msg.sender, address(this), block.timestamp, _amount, _token);
-        IERC20Mintable(llaToken).mint(msg.sender, _amount);
-    }
-
-    /**
-     * @notice Withdraws tokens from the vault
-     * @param _token Token address to withdraw
-     * @param _to Recipient address
-     * @param _amount Amount to withdraw
-     */
-    function withdraw(
-        address _token,
-        address _to,
-        uint256 _amount
-    ) public whenNotPaused nonReentrant {
-        if (isEmpty(supportCoins[_token])) revert UnsupportedToken(_token);
-        if (msg.sender != multiSig) revert InvalidMultisigAddress(multiSig);
-        if (_token == address(0)) revert InvalidAddress(_token);
-        if (_to == address(0)) revert InvalidAddress(_to);
-        if (_amount <= 0) revert InvalidAmount(_amount);
-        if (_amount > MAX_WITHDRAWAL_AMOUNT) revert WithdrawalLimitExceeded(MAX_WITHDRAWAL_AMOUNT);
-        _checkWithdrawalDelay(msg.sender);
-        payments[msg.sender].push(
-            Payment({
-                payer: msg.sender,
-                to: _to,
-                timestamp: block.timestamp,
-                amount: _amount,
-                token: _token,
-                isWithdrawn: true
-            })
-        );
-
-        if (!ERC20(_token).transfer(_to, _amount)) {
-            revert TransferFailed(_token, address(this), _to, _amount);
-        }
-
-        emit Withdrawal(_to, block.timestamp, _amount, _token);
+        emit PaymentDeposited(msg.sender, multiSig, block.timestamp, _amount, _token);
+        IERC20Mintable(llaToken).mint(msg.sender, _amount * 1e18);
     }
 
     /**
@@ -341,48 +259,6 @@ contract LLAVaultBase is
         
         supportCoins[_token] = "";
         emit TokenRemoved(_token, _symbol);
-    }
-
-    /**
-     * @notice Enables emergency withdrawal functionality
-     */
-    function enableEmergencyWithdrawal() external onlyRole(ADMIN_ROLE) {
-        emergencyWithdrawalEnabled = true;
-        emergencyWithdrawalRequestTime = block.timestamp;
-        emit EmergencyWithdrawalRequested(block.timestamp);
-    }
-    
-    /**
-     * @notice Executes emergency withdrawal
-     * @param _token Address of token to withdraw
-     */
-    function emergencyWithdraw(
-        address _token
-    ) external onlyRole(ADMIN_ROLE) whenNotPaused nonReentrant {
-        if (!emergencyWithdrawalEnabled) revert EmergencyWithdrawalNotEnabled();
-        if (block.timestamp < emergencyWithdrawalRequestTime + EMERGENCY_DELAY) {
-            revert EmergencyWithdrawalTooEarly();
-        }
-
-        uint256 balance = ERC20(_token).balanceOf(address(this));
-        if (balance > 0) {
-            if (!ERC20(_token).transfer(msg.sender, balance)) {
-                revert TransferFailed(_token, address(this), msg.sender, balance);
-            }
-            emit EmergencyWithdrawalExecuted(_token, balance);
-        }
-    }
-    
-    /**
-     * @notice Checks if withdrawal delay has been met
-     * @param _user Address of user attempting withdrawal
-     */
-    function _checkWithdrawalDelay(address _user) internal {
-        uint256 timeSinceLastWithdrawal = block.timestamp - lastWithdrawalTime[_user];
-        if (timeSinceLastWithdrawal < WITHDRAWAL_DELAY) {
-            revert WithdrawalTooFrequent(WITHDRAWAL_DELAY - timeSinceLastWithdrawal);
-        }
-        lastWithdrawalTime[_user] = block.timestamp;
     }
 
     /**
