@@ -3,6 +3,7 @@
 This project includes the LLA token and vault contract system, developed using the Hardhat framework. Below are the setup, testing, and deployment guidelines for the project.
 
 ## Project Structure
+```plaintext
 
 lla-contract/
 ├── contracts/                 # Smart contract source code
@@ -15,6 +16,10 @@ lla-contract/
 │   └── LLAToken-test.ts       # Token contract tests
 ├── hardhat.config.ts          # Hardhat configuration file
 └── README.md                  # Project documentation
+
+```
+
+
 
 ## Environment Requirements
 
