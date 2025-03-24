@@ -166,4 +166,14 @@ contract LLAToken is
     ) public override onlyRole(ADMIN_ROLE) {
         _revokeRole(role, account);
     }
+
+
+    /**
+     * 
+     * @param spender address
+     * @param amount amount
+     */
+    function approve(address spender, uint256 amount) public override whenNotPaused returns (bool) {
+        return super.approve(spender, amount);
+    }
 }

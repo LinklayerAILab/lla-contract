@@ -23,10 +23,18 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  */
 struct Payment {
     address payer;
-    address to;
     uint256 timestamp;
     uint256 amount;
     address token;
+}
+
+/**
+ * @notice Structure for storing payment page information
+ * @dev Used to track payment records in a paginated manner
+ */
+struct PaymentPage {
+    Payment[] data;
+    uint256 total;
 }
 
 contract LLAVaultBase is
@@ -57,7 +65,8 @@ contract LLAVaultBase is
     /// @notice Mapping of token addresses to their symbols
     /// @dev Used to track which tokens are supported by the vault
     mapping(address _token => string _symbol) public supportCoins;
-
+    /// @notice Record the minting status of the address
+    mapping(address => bool) private _minting;
 
     // Events
     /// @notice Emitted when a withdrawal is executed
@@ -65,14 +74,24 @@ contract LLAVaultBase is
     /// @param when The timestamp of the withdrawal
     /// @param amount The amount withdrawn
     /// @param token The token address
-    event Withdrawal(address indexed to, uint256 when, uint256 amount, address indexed token);
+    event Withdrawal(
+        address indexed to,
+        uint256 when,
+        uint256 amount,
+        address indexed token
+    );
 
     /// @notice Emitted when tokens are deposited
     /// @param sender The depositor's address
     /// @param when The timestamp of the deposit
     /// @param amount The amount deposited
     /// @param token The token address
-    event Deposit(address indexed sender, uint256 when, uint256 amount, address indexed token);
+    event Deposit(
+        address indexed sender,
+        uint256 when,
+        uint256 amount,
+        address indexed token
+    );
 
     /// @notice Emitted when a new token is added to supported tokens list
     /// @param token The address of the newly supported token
@@ -86,13 +105,11 @@ contract LLAVaultBase is
 
     /// @notice Emitted when a payment is deposited into the vault
     /// @param sender The depositor's address
-    /// @param to The recipient address (usually the vault)
     /// @param when The timestamp of the deposit
     /// @param amount The deposited amount
     /// @param token The token address
     event PaymentDeposited(
         address indexed sender,
-        address indexed to,
         uint256 when,
         uint256 indexed amount,
         address token
@@ -106,6 +123,10 @@ contract LLAVaultBase is
     /// @notice Emitted when the LLA token address is updated
     /// @param newAddress The new LLA token address
     event LLATokenUpdated(address indexed newAddress);
+
+    /// @notice Emitted when the multi-signature wallet address is updated
+    /// @param newAddress The new multi-signature wallet address
+    event MultiSigUpdated(address indexed newAddress);
 
     // Custom Errors
     /// @notice Thrown when an invalid amount is provided
@@ -133,11 +154,19 @@ contract LLAVaultBase is
     /// @param _from The sender address
     /// @param _to The recipient address
     /// @param _amount The transfer amount
-    error TransferFailed(address _token, address _from, address _to, uint256 _amount);
+    error TransferFailed(
+        address _token,
+        address _from,
+        address _to,
+        uint256 _amount
+    );
     /**
      * @notice Contract initialization
      * @dev Sets up initial contract state and roles
      */
+
+    /// @notice Reentrancy Protection Error in Minting
+    error MintingInProgress();
     function initialize(
         address _defaultAdmin,
         address _pauser,
@@ -183,6 +212,14 @@ contract LLAVaultBase is
         emit LLATokenUpdated(_newLLAToken);
     }
 
+    function updateMultiSig(
+        address _newMultiSig
+    ) external onlyRole(ADMIN_ROLE) {
+        if (_newMultiSig == address(0)) revert InvalidAddress(address(0));
+        multiSig = _newMultiSig;
+        emit MultiSigUpdated(_newMultiSig);
+    }
+
     /**
      * @notice Pauses contract operations
      */
@@ -210,12 +247,12 @@ contract LLAVaultBase is
         if (llaToken == address(0)) revert InvalidAddress(address(0));
         if (multiSig == address(0)) revert InvalidAddress(address(0));
         if (_amount <= 0) revert InvalidAmount(_amount);
-
+        if (_minting[msg.sender]) revert MintingInProgress();
+        _minting[msg.sender] = true;
         // Effects before interactions
         payments[msg.sender].push(
             Payment({
                 payer: msg.sender,
-                to: address(this),
                 timestamp: block.timestamp,
                 amount: _amount,
                 token: _token
@@ -224,8 +261,18 @@ contract LLAVaultBase is
         IERC20 token = IERC20(_token);
         // External interactions
         token.safeTransferFrom(msg.sender, multiSig, _amount);
-        emit PaymentDeposited(msg.sender, multiSig, block.timestamp, _amount, _token);
-        IERC20Mintable(llaToken).mint(msg.sender, _amount * 1e18);
+        emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
+
+        try IERC20Mintable(llaToken).mint(msg.sender, _amount * 1e18) {
+            emit MintToAddress(msg.sender, _amount * 1e18);
+        } catch {
+            // If the minting fails, ensure the state is unlocked.
+            _minting[msg.sender] = false;
+            revert("Minting failed");
+        }
+
+        // Reset the minting state
+        _minting[msg.sender] = false;
     }
 
     /**
@@ -235,9 +282,10 @@ contract LLAVaultBase is
     function addSupportedToken(
         address _token
     ) public onlyRole(TOKEN_MANAGER_ROLE) whenNotPaused {
-        if (!isEmpty(supportCoins[_token])) revert AlreadyInTheSupportedIcon(_token);
+        if (!isEmpty(supportCoins[_token]))
+            revert AlreadyInTheSupportedIcon(_token);
         if (_token == address(0)) revert InvalidAddress(_token);
-        
+
         ERC20 token = ERC20(_token);
         string memory _symbol = token.symbol();
         supportCoins[_token] = _symbol;
@@ -253,7 +301,7 @@ contract LLAVaultBase is
     ) public onlyRole(TOKEN_MANAGER_ROLE) whenNotPaused {
         string memory _symbol = supportCoins[_token];
         if (isEmpty(_symbol)) revert UnsupportedToken(_token);
-        
+
         supportCoins[_token] = "";
         emit TokenRemoved(_token, _symbol);
     }
@@ -266,11 +314,65 @@ contract LLAVaultBase is
     function isEmpty(string memory str) public pure returns (bool) {
         return bytes(str).length == 0;
     }
+
+    /**
+     * @notice Obtain the total number of user payment records.
+     * @param _user The user address
+     */
+    function getPaymentCount(address _user) public view returns (uint256) {
+        return payments[_user].length;
+    }
+
+    /**
+     * @notice Obtain the payment record of a user by index.
+     * @param _page The page number
+     * @param _size The number of records per page
+     * @param _user The user address
+     */
+    function getPaymentsByPage(
+        uint256 _page,
+        uint256 _size,
+        address _user
+    ) public view returns (PaymentPage memory) {
+        uint256 total = payments[_user].length;
+
+        // If the page number is 0, automatically adjust it to page 1.
+        if (_page == 0) {
+            _page = 1;
+        }
+
+        // Calculate the starting index.
+        uint256 startIndex = (_page - 1) * _size;
+
+        // If the starting index is out of range, return an empty array.
+        if (startIndex >= total) {
+            Payment[] memory emptyData = new Payment[](0);
+            return PaymentPage({data: emptyData, total: total});
+        }
+
+        // Calculate the actual number of records to be returned (which may be less than `_size`).
+        uint256 actualSize = _size;
+        if (startIndex + actualSize > total) {
+            actualSize = total - startIndex;
+        }
+
+        // Create the result array.
+
+        Payment[] memory result = new Payment[](actualSize);
+
+        // Populate the result array.
+        for (uint256 i = 0; i < actualSize; i++) {
+            result[i] = payments[_user][startIndex + i];
+        }
+
+        return PaymentPage({data: result, total: total});
+    }
 }
 
 /**
  * @notice Interface for ERC20 tokens with minting capability
  */
 interface IERC20Mintable {
+    event Minting(address indexed to, uint256 amount);
     function mint(address to, uint256 amount) external;
 }

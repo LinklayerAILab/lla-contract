@@ -1,20 +1,20 @@
 import { expect } from "chai";
 import { LLAToken, LLAVaultBase } from "../typechain-types";
-import { SignerWithAddress } from "@nomicfoundation/hardhat-ethers/signers";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, upgrades } from "hardhat";
 import { ContractFactory } from "ethers";
 
 describe("LLAVaultBase", function () {
   let LLATokenFactory: ContractFactory;
   let llaVault: LLAVaultBase;
-  let owner: SignerWithAddress;
-  let pauser: SignerWithAddress;
-  let minter: SignerWithAddress;
-  let upgrader: SignerWithAddress;
-  let tokenManager: SignerWithAddress;
-  let multiSig: SignerWithAddress;
-  let addr1: SignerWithAddress;
-  let addr2: SignerWithAddress;
+  let owner: HardhatEthersSigner;
+  let pauser: HardhatEthersSigner;
+  let minter: HardhatEthersSigner;
+  let upgrader: HardhatEthersSigner;
+  let tokenManager: HardhatEthersSigner;
+  let multiSig: HardhatEthersSigner;
+  let addr1: HardhatEthersSigner;
+  let addr2: HardhatEthersSigner;
   let mockToken: LLAToken;
   let VaultProxyAddress: string;
   let LLAProxyAddress: string;

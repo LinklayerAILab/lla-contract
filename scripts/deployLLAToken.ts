@@ -6,13 +6,13 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 async function main() {
-  console.log("---------------------------- deploy LLAToken.ts ----------------------------");
   console.log("OWNER_ADDR---", process.env.OWNER_ADDR);
   console.log("PAUSER_ADDR---", process.env.PAUSER_ADDR);
   console.log("UPGRADER_ADDR---", process.env.UPGRADER_ADDR);
   console.log("MINTER_ADDR---", process.env.MINTER_ADDR);
   console.log("SEPOLIA_URL---", process.env.SEPOLIA_URL);
-  const fullUrl = process.env.SEPOLIA_URL!+'/v3/' + "574138be66974922bc4c949d5b1282ae"
+  const fullUrl =
+    process.env.SEPOLIA_URL! + "/v3/" + "574138be66974922bc4c949d5b1282ae";
   console.log("fullUrl---", fullUrl);
   try {
     const provider = new ethers.JsonRpcProvider(fullUrl);
@@ -21,20 +21,16 @@ async function main() {
     const admin = new ethers.Wallet("0x" + process.env.OWNER_ADDR!).connect(
       provider
     );
-    const pauser = new ethers.Wallet('0x'+process.env.PAUSER_ADDR!).connect(provider);
-    const minter = new ethers.Wallet('0x'+process.env.MINTER_ADDR!).connect(provider);
+    const pauser = new ethers.Wallet("0x" + process.env.PAUSER_ADDR!).connect(
+      provider
+    );
+    const minter = new ethers.Wallet("0x" + process.env.MINTER_ADDR!).connect(
+      provider
+    );
     const upgrader = new ethers.Wallet(
       "0x" + process.env.UPGRADER_ADDR!
     ).connect(provider);
- 
-    console.log("Deployer account:", admin.address);
-    console.log(
-      "Account balance:",
-      ethers.formatEther(await provider.getBalance(admin.address))
-    );
 
-
-    console.log("Pauser account:", pauser.address);
     if (!pauser || !minter || !upgrader) {
       throw new Error("Environment variables are not fully configured");
     }
@@ -46,31 +42,27 @@ async function main() {
       }
     }
 
-    console.log("Starting deployment of LLAToken contract...");
-    console.log("Pauser:", pauser.address);
-    console.log("Minter:", minter.address);
-    console.log("Upgrader:", upgrader.address); 
     // Get the contract factory
     const LLATokenFactory = await ethers.getContractFactory("LLAToken");
 
     // Deploy the proxy contract
-    const llaToken: LLAToken = (await upgrades.deployProxy(
+    const llaToken: LLAToken = await upgrades.deployProxy(
       LLATokenFactory,
       [admin.address, pauser.address, minter.address, upgrader.address],
       {
         kind: "uups",
         initializer: "initialize",
       }
-    ));
+    );
 
     await llaToken.waitForDeployment();
 
-    const contractAddress = await llaToken.getAddress();
-    console.log("LLAToken proxy contract address:", contractAddress);
+    const proxyAddress = await llaToken.getAddress();
+    console.log("LLAToken proxy contract address:", proxyAddress);
 
     // Get the implementation contract address
     const implementationAddress =
-    await upgrades.erc1967.getImplementationAddress(contractAddress);
+      await upgrades.erc1967.getImplementationAddress(proxyAddress);
     console.log("Implementation contract address:", implementationAddress);
 
     // Verify the implementation contract
@@ -80,7 +72,6 @@ async function main() {
     console.log("Verifying implementation contract...");
     await verify(implementationAddress, []);
     console.log("Contract verification completed");
-
 
     // Verify initial state
     console.log("\nVerifying initial contract state:");
