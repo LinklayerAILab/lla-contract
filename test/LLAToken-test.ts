@@ -123,6 +123,19 @@ describe("LLAToken", function () {
   });
 
   describe("Minting Tests", function () {
+    // Test minting with a zero address and zero amount.
+    it("should revert when minting to zero address", async function () {
+      await expect(llaToken.connect(minter).mint(ethers.ZeroAddress, 100))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
+
+    it("should revert when minting zero amount", async function () {
+      await expect(llaToken.connect(minter).mint(addr1.address, 0))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAmount")
+        .withArgs(0);
+    });
+
     it("should mint tokens to an address", async function () {
       // Mint tokens to addr1 and verify balance
       const amount = 100;
@@ -216,6 +229,25 @@ describe("LLAToken", function () {
   });
 
   describe("Pause Functionality Tests", function () {
+    it("should revert when non-PAUSER_ROLE address tries to pause", async function () {
+      await expect(llaToken.connect(addr1).pause())
+        .to.be.revertedWithCustomError(
+          llaToken,
+          "AccessControlUnauthorizedAccount"
+        )
+        .withArgs(addr1.address, await llaToken.PAUSER_ROLE());
+    });
+
+    it("should revert when non-PAUSER_ROLE address tries to unpause", async function () {
+      await llaToken.connect(pauser).pause(); // Pause the contract first
+      await expect(llaToken.connect(addr1).unpause())
+        .to.be.revertedWithCustomError(
+          llaToken,
+          "AccessControlUnauthorizedAccount"
+        )
+        .withArgs(addr1.address, await llaToken.PAUSER_ROLE());
+      await llaToken.connect(pauser).unpause(); // Unpause the contract
+    });
     it("should pause and unpause the contract", async function () {
       // Pause and unpause the contract, verify pause state
       await llaToken.connect(pauser).pause();

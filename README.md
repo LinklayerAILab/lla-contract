@@ -31,7 +31,7 @@ lla-contract/
 Clone the repository and install dependencies:
 
 ```bash
-git clone https://github.com/yourusername/lla-contract.git 
+git clone https://github.com/LinklayerAILab/lla-contract.git
 cd lla-contract
 npm install
 ```

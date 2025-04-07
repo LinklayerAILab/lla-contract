@@ -591,6 +591,13 @@ describe("LLAVaultBase", function () {
   });
 
   describe("Test updating the LLA token address.", function () {
+    it("should revert when updating the LLA token address to zero address", async function () {
+      await expect(
+        llaVault.connect(tokenManager).updateLLAToken(ethers.ZeroAddress)
+      )
+        .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
     it("Updating the LLA token address should be allowed.", async function () {
       const newTokenAddress = await mockToken2.getAddress();
 
@@ -746,6 +753,11 @@ describe("LLAVaultBase", function () {
   });
 
   describe("Multi-signature Address Update Tests", function () {
+    it("should revert when updating the multi-signature address to zero address", async function () {
+      await expect(llaVault.connect(owner).updateMultiSig(ethers.ZeroAddress))
+        .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
     it("should allow updating the multi-signature address", async function () {
       const newMultiSig = addr3.address;
 
