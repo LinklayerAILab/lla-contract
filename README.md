@@ -15,6 +15,7 @@ lla-contract/
 ├── test/                      # Test files
 │   ├── LLAVaultBase-test.ts   # Vault contract tests
 │   └── LLAToken-test.ts       # Token contract tests
+│   └── LLAXToken-test.ts      # Token contract tests
 ├── hardhat.config.ts          # Hardhat configuration file
 └── README.md                  # Project documentation
 
