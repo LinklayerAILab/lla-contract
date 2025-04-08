@@ -1,11 +1,11 @@
 import { expect } from "chai";
-import { LLAToken, LLAVaultBase } from "../typechain-types";
+import { LLAXToken, LLAVaultBase } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, upgrades } from "hardhat";
 import { ContractFactory } from "ethers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 describe("LLAVaultBase", function () {
-  let LLATokenFactory: ContractFactory;
+  let LLAXTokenFactory: ContractFactory;
   let llaVault: LLAVaultBase;
   let owner: HardhatEthersSigner;
   let pauser: HardhatEthersSigner;
@@ -16,8 +16,8 @@ describe("LLAVaultBase", function () {
   let addr1: HardhatEthersSigner;
   let addr2: HardhatEthersSigner;
   let addr3: HardhatEthersSigner;
-  let mockToken: LLAToken;
-  let mockToken2: LLAToken;
+  let mockToken: LLAXToken;
+  let mockToken2: LLAXToken;
   let VaultProxyAddress: string;
   let LLAProxyAddress: string;
   const transferAmount = 1000;
@@ -44,28 +44,28 @@ describe("LLAVaultBase", function () {
     console.log("addr1:", addr1.address);
 
     // Deploy a mock ERC20 token.
-    LLATokenFactory = await ethers.getContractFactory("LLAToken");
+    LLAXTokenFactory = await ethers.getContractFactory("LLAXToken");
     mockToken = (await upgrades.deployProxy(
-      LLATokenFactory,
+      LLAXTokenFactory,
       [owner.address, pauser.address, minter.address, upgrader.address],
       {
         kind: "uups",
         initializer: "initialize",
       }
-    )) as LLAToken;
+    )) as LLAXToken;
 
     await mockToken.waitForDeployment();
     LLAProxyAddress = await mockToken.getAddress();
 
     // Deploy a second mock token for testing.
     mockToken2 = (await upgrades.deployProxy(
-      LLATokenFactory,
+      LLAXTokenFactory,
       [owner.address, pauser.address, minter.address, upgrader.address],
       {
         kind: "uups",
         initializer: "initialize",
       }
-    )) as LLAToken;
+    )) as LLAXToken;
     await mockToken2.waitForDeployment();
 
     // Deploy the LLAVaultBase contract.
@@ -125,7 +125,7 @@ describe("LLAVaultBase", function () {
 
     it("The LLA token address should be correctly set.", async function () {
       // Verify that the LLA token address is correctly set.
-      expect(await llaVault.llaToken()).to.equal(LLAProxyAddress);
+      expect(await llaVault.token()).to.equal(LLAProxyAddress);
     });
 
     it("The multisig address should be correctly set.", async function () {
@@ -321,13 +321,13 @@ describe("LLAVaultBase", function () {
     it("If the token does not exist, removing it should revert.", async function () {
       // Attempt to remove a non-existent token and expect it to revert.
       const newToken = (await upgrades.deployProxy(
-        LLATokenFactory,
+        LLAXTokenFactory,
         [owner.address, pauser.address, minter.address, upgrader.address],
         {
           kind: "uups",
           initializer: "initialize",
         }
-      )) as LLAToken;
+      )) as LLAXToken;
       await newToken.waitForDeployment();
       await expect(
         llaVault.connect(tokenManager).removeSupportedToken(newToken.target)
@@ -339,13 +339,13 @@ describe("LLAVaultBase", function () {
     it("Supported tokens should be removed.", async function () {
       // Remove supported tokens and verify.
       const newToken = (await upgrades.deployProxy(
-        LLATokenFactory,
+        LLAXTokenFactory,
         [owner.address, pauser.address, minter.address, upgrader.address],
         {
           kind: "uups",
           initializer: "initialize",
         }
-      )) as LLAToken;
+      )) as LLAXToken;
       await newToken.waitForDeployment();
       const tokenAddress = await newToken.getAddress();
       const tokenSymbol = await newToken.symbol();
@@ -392,13 +392,13 @@ describe("LLAVaultBase", function () {
 
     it("Adding tokens when the contract is paused should revert.", async function () {
       const newToken = (await upgrades.deployProxy(
-        LLATokenFactory,
+        LLAXTokenFactory,
         [owner.address, pauser.address, minter.address, upgrader.address],
         {
           kind: "uups",
           initializer: "initialize",
         }
-      )) as LLAToken;
+      )) as LLAXToken;
       await newToken.waitForDeployment();
 
       await llaVault.connect(pauser).pause();
@@ -593,7 +593,7 @@ describe("LLAVaultBase", function () {
   describe("Test updating the LLA token address.", function () {
     it("should revert when updating the LLA token address to zero address", async function () {
       await expect(
-        llaVault.connect(tokenManager).updateLLAToken(ethers.ZeroAddress)
+        llaVault.connect(tokenManager).updateToken(ethers.ZeroAddress)
       )
         .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
         .withArgs(ethers.ZeroAddress);
@@ -601,23 +601,21 @@ describe("LLAVaultBase", function () {
     it("Updating the LLA token address should be allowed.", async function () {
       const newTokenAddress = await mockToken2.getAddress();
 
-      await expect(
-        llaVault.connect(tokenManager).updateLLAToken(newTokenAddress)
-      )
-        .to.emit(llaVault, "LLATokenUpdated")
+      await expect(llaVault.connect(tokenManager).updateToken(newTokenAddress))
+        .to.emit(llaVault, "TokenUpdated")
         .withArgs(newTokenAddress);
 
-      expect(await llaVault.llaToken()).to.equal(newTokenAddress);
+      expect(await llaVault.token()).to.equal(newTokenAddress);
 
       // Restore the original settings.
       const originalTokenAddress = await mockToken.getAddress();
-      await llaVault.connect(tokenManager).updateLLAToken(originalTokenAddress);
+      await llaVault.connect(tokenManager).updateToken(originalTokenAddress);
     });
 
     it("Updating the LLA token address by a non-token admin should revert.", async function () {
       const newTokenAddress = await mockToken2.getAddress();
 
-      await expect(llaVault.connect(addr1).updateLLAToken(newTokenAddress))
+      await expect(llaVault.connect(addr1).updateToken(newTokenAddress))
         .to.be.revertedWithCustomError(
           llaVault,
           "AccessControlUnauthorizedAccount"
@@ -627,7 +625,7 @@ describe("LLAVaultBase", function () {
 
     it("Updating to the zero address should revert.", async function () {
       await expect(
-        llaVault.connect(tokenManager).updateLLAToken(ethers.ZeroAddress)
+        llaVault.connect(tokenManager).updateToken(ethers.ZeroAddress)
       )
         .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
         .withArgs(ethers.ZeroAddress);
@@ -638,12 +636,12 @@ describe("LLAVaultBase", function () {
 
       await llaVault.connect(pauser).pause();
 
-      await llaVault.connect(tokenManager).updateLLAToken(newTokenAddress);
-      expect(await llaVault.llaToken()).to.equal(newTokenAddress);
+      await llaVault.connect(tokenManager).updateToken(newTokenAddress);
+      expect(await llaVault.token()).to.equal(newTokenAddress);
 
       // Restore the original settings.
       const originalTokenAddress = await mockToken.getAddress();
-      await llaVault.connect(tokenManager).updateLLAToken(originalTokenAddress);
+      await llaVault.connect(tokenManager).updateToken(originalTokenAddress);
       await llaVault.connect(pauser).unpause();
     });
   });
@@ -861,7 +859,7 @@ describe("LLAVaultBase", function () {
 
     it("should maintain state after upgrade", async function () {
       // Record the current state
-      const originalLLAToken = await llaVault.llaToken();
+      const originalLLAToken = await llaVault.token();
       const originalMultiSig = await llaVault.multiSig();
       const NewLLAVaultFactory2 = await ethers.getContractFactory(
         "NewLLAVaultBase",
@@ -875,7 +873,7 @@ describe("LLAVaultBase", function () {
       )) as LLAVaultBase;
 
       // Verify the state remains unchanged
-      expect(await upgradedContract.llaToken()).to.equal(originalLLAToken);
+      expect(await upgradedContract.token()).to.equal(originalLLAToken);
       expect(await upgradedContract.multiSig()).to.equal(originalMultiSig);
 
       // Restore the original version

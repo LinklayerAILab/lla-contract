@@ -39,10 +39,20 @@ npm install
 ## Contract Overview
 
 - `LLAToken.sol`: An LLA token contract implementing the ERC20 standard.
+- `LLAXToken.sol`: An LLAX token contract implementing the ERC20 standard.
 - `LLAVaultBase.sol`: The vault base contract, containing basic vault functionalities.
 - `LLAVaultAuth.sol`: The authorization management contract, used for managing vault permissions.
 
 ### LLAToken
+
+LLA token is an upgradable ERC20-compliant token with the following features:
+
+- Pausable transactions
+- Role-based access control
+- Upgradeable design (UUPS pattern)
+- Token minting and burning capabilities
+
+### LLAXToken
 
 LLA token is an upgradable ERC20-compliant token with the following features:
 
@@ -83,6 +93,7 @@ npx hardhat test
 ```bash
 npx hardhat test test/LLAVaultBase-test.ts
 npx hardhat test test/LLAToken-test.ts
+npx hardhat test test/LLAXToken-test.ts
 ```
 
 ## Test Coverage Report

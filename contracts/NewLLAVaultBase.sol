@@ -52,7 +52,7 @@ contract NewLLAVaultBase is
 
     /// @notice The address of the LLA token contract
     /// @dev Used for minting LLA tokens when users deposit other tokens
-    address public llaToken;
+    address public token;
 
     /// @notice The version identifier of the contract
     /// @dev Used for tracking contract versions during upgrades
@@ -122,7 +122,11 @@ contract NewLLAVaultBase is
 
     /// @notice Emitted when the LLA token address is updated
     /// @param newAddress The new LLA token address
-    event LLATokenUpdated(address indexed newAddress);
+    event TokenUpdated(address indexed newAddress);
+
+    /// @notice Emitted when the multi-signature wallet address is updated
+    /// @param newAddress The new multi-signature wallet address
+    event MultiSigUpdated(address indexed newAddress);
 
     // Custom Errors
     /// @notice Thrown when an invalid amount is provided
@@ -169,7 +173,7 @@ contract NewLLAVaultBase is
         address _minter,
         address _tokenManager,
         address _upgrader,
-        address _llaToken,
+        address _token,
         address _multiSig
     ) public initializer {
         if (_defaultAdmin == address(0)) revert InvalidAddress(address(0));
@@ -177,7 +181,7 @@ contract NewLLAVaultBase is
         if (_minter == address(0)) revert InvalidAddress(address(0));
         if (_tokenManager == address(0)) revert InvalidAddress(address(0));
         if (_upgrader == address(0)) revert InvalidAddress(address(0));
-        if (_llaToken == address(0)) revert InvalidAddress(address(0));
+        if (_token == address(0)) revert InvalidAddress(address(0));
         if (_multiSig == address(0)) revert InvalidAddress(address(0));
 
         __UUPSUpgradeable_init();
@@ -191,21 +195,21 @@ contract NewLLAVaultBase is
             _upgrader
         );
 
-        llaToken = _llaToken;
+        token = _token;
         multiSig = _multiSig;
-        emit LLATokenUpdated(_llaToken);
+        emit TokenUpdated(_token);
     }
 
     /**
-     * @notice Updates the LLA token address
-     * @param _newLLAToken New token address to be set
+     * @notice Updates the token address
+     * @param _newToken New token address to be set
      */
-    function updateLLAToken(
-        address _newLLAToken
+    function updateToken(
+        address _newToken
     ) external onlyRole(TOKEN_MANAGER_ROLE) {
-        if (_newLLAToken == address(0)) revert InvalidAddress(address(0));
-        llaToken = _newLLAToken;
-        emit LLATokenUpdated(_newLLAToken);
+        if (_newToken == address(0)) revert InvalidAddress(address(0));
+        token = _newToken;
+        emit TokenUpdated(_newToken);
     }
 
     function updateMultiSig(
@@ -213,6 +217,7 @@ contract NewLLAVaultBase is
     ) external onlyRole(ADMIN_ROLE) {
         if (_newMultiSig == address(0)) revert InvalidAddress(address(0));
         multiSig = _newMultiSig;
+        emit MultiSigUpdated(_newMultiSig);
     }
 
     /**
@@ -239,7 +244,7 @@ contract NewLLAVaultBase is
         uint256 _amount
     ) public payable whenNotPaused nonReentrant {
         if (isEmpty(supportCoins[_token])) revert UnsupportedToken(_token);
-        if (llaToken == address(0)) revert InvalidAddress(address(0));
+        if (token == address(0)) revert InvalidAddress(address(0));
         if (multiSig == address(0)) revert InvalidAddress(address(0));
         if (_amount <= 0) revert InvalidAmount(_amount);
         if (_minting[msg.sender]) revert MintingInProgress();
@@ -253,12 +258,12 @@ contract NewLLAVaultBase is
                 token: _token
             })
         );
-        IERC20 token = IERC20(_token);
+        IERC20 myToken = IERC20(_token);
         // External interactions
-        token.safeTransferFrom(msg.sender, multiSig, _amount);
+        myToken.safeTransferFrom(msg.sender, multiSig, _amount);
         emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
 
-        try IERC20Mintable(llaToken).mint(msg.sender, _amount * 1e18) {
+        try IERC20Mintable(token).mint(msg.sender, _amount * 1e18) {
             emit MintToAddress(msg.sender, _amount * 1e18);
         } catch {
             // If the minting fails, ensure the state is unlocked.
@@ -281,8 +286,8 @@ contract NewLLAVaultBase is
             revert AlreadyInTheSupportedIcon(_token);
         if (_token == address(0)) revert InvalidAddress(_token);
 
-        ERC20 token = ERC20(_token);
-        string memory _symbol = token.symbol();
+        ERC20 myToken = ERC20(_token);
+        string memory _symbol = myToken.symbol();
         supportCoins[_token] = _symbol;
         emit TokenAdded(_token, _symbol);
     }
