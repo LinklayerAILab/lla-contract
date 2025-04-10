@@ -68,6 +68,11 @@ contract LLAVaultBase is
     /// @notice Record the minting status of the address
     mapping(address => bool) private _minting;
 
+    /// @notice Deposit Funds Allocation Ratio to Multisignature Addresses
+    uint256 public constant FUNDING_RATE = 30; // 30%
+    /// @notice Minting Rate of LLAX Token
+    uint256 public constant MINTING_RATE = 60; // 60%
+
     // Events
     /// @notice Emitted when a withdrawal is executed
     /// @param to The recipient address
@@ -167,6 +172,8 @@ contract LLAVaultBase is
 
     /// @notice Reentrancy Protection Error in Minting
     error MintingInProgress();
+    /// @notice Reentrancy Protection Error in Minting
+    error MintingFailed();
     function initialize(
         address _defaultAdmin,
         address _pauser,
@@ -259,16 +266,23 @@ contract LLAVaultBase is
             })
         );
         IERC20 myToken = IERC20(_token);
+        // TODO 验证数据精度是否有问题
+        uint256 sendAmountToMultisig = (_amount * FUNDING_RATE) / 100;
+        uint256 sendAmountToSelf = _amount - sendAmountToMultisig;
         // External interactions
-        myToken.safeTransferFrom(msg.sender, multiSig, _amount);
+        // Transfer the specified amount to the multi-signature wallet
+        myToken.safeTransferFrom(msg.sender, multiSig, sendAmountToMultisig);
+        // Transfer the remaining amount to the vault contract itself
+        myToken.safeTransferFrom(msg.sender, address(this), sendAmountToSelf);
         emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
-
-        try IERC20Mintable(token).mint(msg.sender, _amount * 1e18) {
-            emit MintToAddress(msg.sender, _amount * 1e18);
+        // Mint LLA tokens to the user
+        uint256 mintAmount = (_amount * MINTING_RATE + 50) / 100;
+        try IERC20Mintable(token).mint(msg.sender, mintAmount) {
+            emit MintToAddress(msg.sender, mintAmount);
         } catch {
             // If the minting fails, ensure the state is unlocked.
             _minting[msg.sender] = false;
-            revert("Minting failed");
+            revert MintingFailed();
         }
 
         // Reset the minting state

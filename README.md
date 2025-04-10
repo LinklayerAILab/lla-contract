@@ -8,7 +8,7 @@ This project includes the LLA token and vault contract system, developed using t
 lla-contract/
 ├── contracts/                 # Smart contract source code
 │   ├── LLAToken.sol           # LLA token contract
-│   ├── LLAXToken.sol           # LLAX token contract
+│   ├── LLAXToken.sol          # LLAX token contract
 │   ├── LLAVaultBase.sol       # Vault base contract
 │   └── LLAVaultAuth.sol       # Authorization management contract
 ├── scripts/                   # Deployment scripts

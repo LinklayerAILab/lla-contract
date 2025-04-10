@@ -1,10 +1,13 @@
 import { expect } from "chai";
-import { LLAXToken, LLAVaultBase } from "../typechain-types";
+import { LLAXToken, LLAVaultBase, MockUSDC } from "../typechain-types";
 import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, upgrades } from "hardhat";
 import { ContractFactory } from "ethers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
+import { bigint } from "hardhat/internal/core/params/argumentTypes";
 describe("LLAVaultBase", function () {
+  const mintingRate = BigInt(60); // 60%
+  const fundingRate = BigInt(30); // 30%
   let LLAXTokenFactory: ContractFactory;
   let llaVault: LLAVaultBase;
   let owner: HardhatEthersSigner;
@@ -21,6 +24,8 @@ describe("LLAVaultBase", function () {
   let VaultProxyAddress: string;
   let LLAProxyAddress: string;
   const transferAmount = 1000;
+  let USDCTokenFactory: ContractFactory;
+  let USDCToken: MockUSDC;
 
   before(async function () {
     // Obtain a test account.
@@ -88,6 +93,20 @@ describe("LLAVaultBase", function () {
     )) as LLAVaultBase;
     await llaVault.waitForDeployment();
     VaultProxyAddress = await llaVault.getAddress();
+
+    USDCTokenFactory = await ethers.getContractFactory("MockUSDC");
+    USDCToken = (await upgrades.deployProxy(
+      USDCTokenFactory,
+      [owner.address, pauser.address, minter.address, upgrader.address],
+      {
+        kind: "uups",
+        initializer: "initialize",
+      }
+    )) as LLAXToken;
+    // Add as a supported token
+    await llaVault
+      .connect(tokenManager)
+      .addSupportedToken(await USDCToken.getAddress());
   });
 
   describe("Initialize the test.", function () {
@@ -456,39 +475,23 @@ describe("LLAVaultBase", function () {
       }
     });
 
-    it("The contract should allow deposits and record payment information.", async function () {
+    it("Depositing when paused should revert.", async function () {
       const depositAmount = ethers.parseEther("100");
       const tokenAddress = await mockToken.getAddress();
 
       // Approve the vault contract to spend tokens.
       await mockToken.connect(addr1).approve(VaultProxyAddress, depositAmount);
 
-      // Record the balance before depositing.
-      const balanceBefore = await mockToken.balanceOf(multiSig.address);
-      const userBalanceBefore = await mockToken.balanceOf(addr1.address);
+      // Pause the contract.
+      await llaVault.connect(pauser).pause();
 
-      // depositing
-      await expect(llaVault.connect(addr1).deposit(tokenAddress, depositAmount))
-        .and.to.emit(llaVault, "PaymentDeposited")
-        .withArgs(addr1.address, anyValue, depositAmount, tokenAddress)
-        .and.to.emit(llaVault, "MintToAddress")
-        .withArgs(addr1.address, depositAmount * BigInt(1e18));
+      // Expect the deposit to revert.
+      await expect(
+        llaVault.connect(addr1).deposit(tokenAddress, depositAmount)
+      ).to.be.revertedWithCustomError(llaVault, "EnforcedPause");
 
-      // Verify the balance change.
-      const balanceAfter = await mockToken.balanceOf(multiSig.address);
-      expect(balanceAfter - balanceBefore).to.equal(depositAmount);
-
-      // Verify that the user received the minted tokens.
-      const userBalanceAfter = await mockToken.balanceOf(addr1.address);
-      expect(userBalanceAfter).to.equal(
-        userBalanceBefore - depositAmount + depositAmount * BigInt(1e18)
-      );
-
-      // Verify the payment records.
-      const payment = await llaVault.payments(addr1.address, 0);
-      expect(payment.payer).to.equal(addr1.address);
-      expect(payment.amount).to.equal(depositAmount);
-      expect(payment.token).to.equal(tokenAddress);
+      // Unpause the contract for cleanup.
+      await llaVault.connect(pauser).unpause();
     });
 
     it("Depositing zero amount should revert.", async function () {
@@ -525,7 +528,7 @@ describe("LLAVaultBase", function () {
     });
 
     it("Depositing when the user has insufficient balance should revert.", async function () {
-      const depositAmount = ethers.parseEther("1000000000000000049000"); // 超过用户余额
+      const depositAmount = ethers.parseEther("1000000000000000049000"); // Exceeds user balance
       const tokenAddress = await mockToken.getAddress();
       await mockToken.connect(addr1).approve(VaultProxyAddress, depositAmount);
       await expect(llaVault.connect(addr1).deposit(tokenAddress, depositAmount))
@@ -587,6 +590,237 @@ describe("LLAVaultBase", function () {
       // TODO Verify
       // Verify that the reentrancy protection is effective.
       // Note: This is just a conceptual test. In practice, a more complex setup is required.
+    });
+    // TODO Verify the cases
+    it("should correctly calculate and allocate deposit amounts to multisig address and vault contract, and mint corresponding tokens to user address", async function () {
+      await mockToken2
+        .connect(minter)
+        .mint(addr1.address, ethers.parseEther("10000"));
+      // Minted LLAX before deposit
+      const mintBeforeBalance = await mockToken.balanceOf(addr1.address);
+      // Vault initial balance (LLAX Token)
+      const selfBalanceBefore = await mockToken2.balanceOf(VaultProxyAddress);
+      // Multisig address initial balance (LLAX Token)
+      const multiSigBalanceBefore = await mockToken2.balanceOf(
+        multiSig.address
+      );
+
+      // User initial balance mockToken
+      const userBalanceBefore = await mockToken2.balanceOf(addr1.address);
+      const depositAmount = ethers.parseEther("100");
+
+      // Approve and deposit
+      await mockToken2.connect(addr1).approve(VaultProxyAddress, depositAmount);
+      await llaVault
+        .connect(addr1)
+        .deposit(await mockToken2.getAddress(), depositAmount);
+
+      // Vault initial balance (LLAX Token)
+      const selfBalanceAfter = await mockToken2.balanceOf(VaultProxyAddress);
+      // Multisig address initial balance (LLAX Token)
+      const multiSigBalanceAfter = await mockToken2.balanceOf(multiSig.address);
+      const mintAfterBalance = await mockToken.balanceOf(addr1.address);
+      // User initial balance mockToken
+      const userBalanceAfter = await mockToken2.balanceOf(addr1.address);
+      // Calculate expected allocation amounts
+      const expectedMultiSigAmount =
+        (depositAmount * BigInt(fundingRate)) / BigInt(100);
+      const expectedSelfAmount =
+        (depositAmount * (BigInt(100) - BigInt(fundingRate))) / BigInt(100);
+      const expectedMintAmount =
+        (depositAmount * BigInt(mintingRate)) / BigInt(100);
+
+      // Verify the amount received by the multisig address
+
+      expect(multiSigBalanceAfter - multiSigBalanceBefore).to.equal(
+        expectedMultiSigAmount
+      );
+      // Verify the amount received by the vault contract
+      expect(selfBalanceAfter - selfBalanceBefore).to.equal(expectedSelfAmount);
+
+      // Verify the user's token balance after deposit
+      expect(userBalanceBefore - depositAmount).to.equal(userBalanceAfter);
+      // Verify the minted LLA tokens received by the user
+
+      expect(mintBeforeBalance + expectedMintAmount).to.equal(mintAfterBalance);
+    });
+
+    it("should correctly trigger PaymentDeposited and MintToAddress events", async function () {
+      const depositAmount = ethers.parseEther("50");
+      const tokenAddress = await mockToken.getAddress();
+      // Calculate expected minted amount
+      const expectedMintAmount =
+        (depositAmount * BigInt(mintingRate)) / BigInt(100);
+      // Approve
+      await mockToken.connect(addr1).approve(VaultProxyAddress, depositAmount);
+      // Verify event triggers
+      await expect(llaVault.connect(addr1).deposit(tokenAddress, depositAmount))
+        .to.emit(llaVault, "PaymentDeposited")
+        .withArgs(addr1.address, anyValue, depositAmount, tokenAddress)
+        .and.to.emit(llaVault, "MintToAddress")
+        .withArgs(addr1.address, expectedMintAmount);
+    });
+
+    it("should correctly handle deposits under reentrancy protection", async function () {
+      const depositAmount = ethers.parseEther("25");
+      const tokenAddress = await mockToken.getAddress();
+      // Approve
+      await mockToken
+        .connect(addr1)
+        .approve(VaultProxyAddress, depositAmount * BigInt(2));
+      // First deposit
+      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
+      // Immediately perform a second deposit, verify reentrancy protection does not affect normal operation
+      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
+      // Verify both deposits are recorded
+      const paymentCount = await getPaymentCount(addr1.address);
+      expect(paymentCount).to.be.at.least(2);
+      // Verify the last two payment records
+      const payment1 = await llaVault.payments(
+        addr1.address,
+        paymentCount - 2n
+      );
+      const payment2 = await llaVault.payments(
+        addr1.address,
+        paymentCount - 1n
+      );
+      expect(payment1.amount).to.equal(depositAmount);
+      expect(payment2.amount).to.equal(depositAmount);
+    });
+    it("should correctly handle amounts that cannot be divided by 100", async function () {
+      const amount = ethers.parseEther("0.01") + 1n; // 0.01 ETH + 1 wei, ensure it cannot be divided by 100
+      const tokenAddress = await USDCToken.getAddress();
+      // Mint some small amount of tokens
+      await USDCToken.connect(minter).mint(
+        addr1.address,
+        ethers.parseEther("100000")
+      );
+      // Calculate expected minted amount (using rounding)
+      const expectedMintAmount = (amount * BigInt(mintingRate) + 50n) / 100n;
+
+      // Approve and deposit
+      await USDCToken.connect(addr1).approve(VaultProxyAddress, amount);
+
+      // Record balance before deposit
+      const balanceBefore = await mockToken.balanceOf(addr1.address);
+
+      // Execute deposit
+      await llaVault.connect(addr1).deposit(tokenAddress, amount);
+
+      // Verify the minted amount
+      const balanceAfter = await mockToken.balanceOf(addr1.address);
+      expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
+    });
+    it("should correctly handle deposits with very small amounts", async function () {
+      // Use a very small amount, which may result in a minted amount of 0
+      const tinyAmount = 1n;
+      const tokenAddress = await USDCToken.getAddress();
+
+      // Calculate the expected minted amount
+      const expectedMintAmount =
+        (tinyAmount * BigInt(mintingRate) + 50n) / 100n;
+
+      // Mint some small amount of tokens
+      await USDCToken.connect(minter).mint(addr1.address, tinyAmount);
+
+      // Approve and deposit
+      await USDCToken.connect(addr1).approve(VaultProxyAddress, tinyAmount);
+
+      // Record balance before deposit
+      const balanceBefore = await mockToken.balanceOf(addr1.address);
+
+      // Execute deposit
+      await llaVault.connect(addr1).deposit(tokenAddress, tinyAmount);
+
+      // Verify the minted amount
+      const balanceAfter = await mockToken.balanceOf(addr1.address);
+      expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
+    });
+    it("should correctly handle deposit precision for large amounts", async function () {
+      // Use a large amount, but ensure it cannot be divided by 100
+      const largeAmount = ethers.parseEther("1000000") + 1n;
+      const tokenAddress = await USDCToken.getAddress();
+
+      // Calculate expected minted amount
+      const expectedMintAmount =
+        (largeAmount * BigInt(mintingRate) + 50n) / 100n;
+
+      // Mint a large amount of tokens
+      await USDCToken.connect(minter).mint(addr1.address, largeAmount);
+
+      // Approve and deposit
+      await USDCToken.connect(addr1).approve(VaultProxyAddress, largeAmount);
+
+      // Record balance before deposit
+      const balanceBefore = await mockToken.balanceOf(addr1.address);
+
+      // Execute deposit
+      await llaVault.connect(addr1).deposit(tokenAddress, largeAmount);
+
+      // Verify the minted amount
+      const balanceAfter = await mockToken.balanceOf(addr1.address);
+      expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
+    });
+    it("should correctly handle deposits with low precision tokens", async function () {
+      // Use an amount that cannot be divided by 100
+      const amount = 1000001n; // 1.000001 USDC (6 decimal places)
+
+      // Calculate expected minted amount
+      const expectedMintAmount = (amount * BigInt(mintingRate) + 50n) / 100n;
+
+      // Mint tokens
+      await USDCToken.connect(minter).mint(addr1.address, amount);
+
+      // Approve and deposit
+      await USDCToken.connect(addr1).approve(VaultProxyAddress, amount);
+
+      // Record balance before deposit
+      const balanceBefore = await mockToken.balanceOf(addr1.address);
+
+      // Execute deposit
+      await llaVault
+        .connect(addr1)
+        .deposit(await USDCToken.getAddress(), amount);
+
+      // Verify the minted amount
+      const balanceAfter = await mockToken.balanceOf(addr1.address);
+      expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
+    });
+    it("should verify the correctness of rounding", async function () {
+      // Test rounding edge cases
+      const testCases = [
+        { amount: 49n, expectedMint: 29n }, // 49 * 60% = 29.4, rounded to 29
+        { amount: 50n, expectedMint: 30n }, // 50 * 60% = 30, rounded to 30
+        { amount: 51n, expectedMint: 31n }, // 51 * 60% = 30.6, rounded to 31
+        { amount: 99n, expectedMint: 59n }, // 99 * 60% = 59.4, rounded to 59
+        { amount: 100n, expectedMint: 60n }, // 100 * 60% = 60, rounded to 60
+        { amount: 101n, expectedMint: 61n }, // 101 * 60% = 60.6, rounded to 61
+      ];
+
+      const tokenAddress = await USDCToken.getAddress();
+
+      for (const testCase of testCases) {
+        // Mint tokens
+        await USDCToken.connect(minter).mint(addr1.address, testCase.amount);
+
+        // Approve and deposit
+        await USDCToken.connect(addr1).approve(
+          VaultProxyAddress,
+          testCase.amount
+        );
+
+        // Record balance before deposit
+        const balanceBefore = await mockToken.balanceOf(addr1.address);
+        // Execute deposit
+        await llaVault.connect(addr1).deposit(tokenAddress, testCase.amount);
+
+        // Verify the minted amount
+        const balanceAfter = await mockToken.balanceOf(addr1.address);
+        expect(balanceAfter - balanceBefore).to.equal(
+          testCase.expectedMint,
+          `Amount ${testCase.amount} should mint ${testCase.expectedMint} tokens`
+        );
+      }
     });
   });
 
