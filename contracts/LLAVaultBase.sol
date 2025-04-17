@@ -266,7 +266,6 @@ contract LLAVaultBase is
             })
         );
         IERC20 myToken = IERC20(_token);
-        // TODO 验证数据精度是否有问题
         uint256 sendAmountToMultisig = (_amount * FUNDING_RATE) / 100;
         uint256 sendAmountToSelf = _amount - sendAmountToMultisig;
         // External interactions

@@ -17,7 +17,7 @@
     "./typechain-types",
     "./contracts",
     "./src"
-  ],
+, "ignition/modules/deployLLAToken.ts", "ignition/modules/deployLLAVaultBase.ts", "ignition/modules/updateLLAVaultBase.ts"  ],
   "exclude": [
     "node_modules",
     "dist"

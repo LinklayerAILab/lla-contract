@@ -1,0 +1,9 @@
+{
+  "contract": "LLAToken",
+  "adminAddress": "0xc7b7ed227f91f5b92a126A5015Dd0b241559C729",
+  "pauserAddress": "0xc7b7ed227f91f5b92a126A5015Dd0b241559C729",
+  "minterAddress": "0xc7b7ed227f91f5b92a126A5015Dd0b241559C729",
+  "upgraderAddress": "0xc7b7ed227f91f5b92a126A5015Dd0b241559C729",
+  "proxyAddress": "0x6554c798Ec6c876c4A176CE16c0EC0dc6ac9348f",
+  "logicAddress": "0x7C055b5b0d2463f9Be2D41b6e2036C3919b4D3A7"
+}

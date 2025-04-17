@@ -1,5 +1,5 @@
 import { ethers, upgrades } from "hardhat";
-import { verify } from "../utils/verify";
+import { verify } from "../../utils/verify";
 async function main() {
   const fullUrl =
     process.env.SEPOLIA_URL! + "/v3/" + "574138be66974922bc4c949d5b1282ae";

@@ -2,6 +2,7 @@ import { HardhatUserConfig } from "hardhat/config";
 require("@chainlink/env-enc").config();
 import "@nomicfoundation/hardhat-toolbox";
 // import "@nomicfoundation/hardhat-foundry";
+import "@nomicfoundation/hardhat-ignition-ethers";
 import "@openzeppelin/hardhat-upgrades";
 import "@nomicfoundation/hardhat-ethers";
 import "@nomicfoundation/hardhat-chai-matchers";
@@ -51,7 +52,24 @@ const config: HardhatUserConfig = {
       ],
       chainId: 11155111,
     },
+    bsctest: {
+      url: "https://bsc-testnet-dataseed.bnbchain.org",
+      accounts: [
+        OWNER_ADDR,
+        OWNER_ADDR,
+        OWNER_ADDR,
+        OWNER_ADDR,
+        OWNER_ADDR,
+        OWNER_ADDR,
+        OWNER_ADDR,
+        TESTADDR_2,
+      ],
+      chainId: 97,
+    },
   },
-};
+  ignition: {}, // Remove 'moduleDirectory' as it is no longer supported
+}
+
+
 
 export default config;
