@@ -14,24 +14,24 @@ async function main() {
     throw new Error("Missing PRIVATE_KEY or OWNER_ADDR in .env file");
   }
 
-  // 定义多个 RPC 节点
+  // Define multiple RPC nodesiple RPC nodes
   const RPC_ENDPOINTS = [
     "https://bsc-testnet.infura.io/v3/574138be66974922bc4c949d5b1282ae",
     "https://bsc-testnet.infura.io/v3/574138be66974922bc4c949d5b1282ae",
     "https://bsc-testnet.infura.io/v3/574138be66974922bc4c949d5b1282ae",
   ];
 
-  // 创建 provider 的函数
+  // Create provider function function
   async function createProvider(endpoint: string) {
     return new ethers.JsonRpcProvider(endpoint);
   }
 
-  // 尝试连接到可用的 RPC 节点
+  // Try to connect to available RPC nodes
   async function getWorkingProvider() {
     for (const endpoint of RPC_ENDPOINTS) {
       try {
         const provider = await createProvider(endpoint);
-        // 测试连接
+        // Test connection
         await provider.getBlockNumber();
         console.log(`Successfully connected to ${endpoint}`);
         return provider;
@@ -42,7 +42,7 @@ async function main() {
     throw new Error("Failed to connect to any RPC endpoint");
   }
 
-  // 获取可用的 provider
+  // Get available provider
   const provider = await getWorkingProvider();
   const admin = new ethers.Wallet("0x" + process.env.OWNER_ADDR!, provider);
 
@@ -55,8 +55,8 @@ async function main() {
 
   // Retry logic for deployment
   async function deployWithRetry() {
-    const maxRetries = 5; // 增加重试次数
-    const retryDelay = 10000; // 10秒延迟
+    const maxRetries = 5; // Increase retry count
+    const retryDelay = 10000; // 10 seconds delay
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -69,11 +69,11 @@ async function main() {
           {
             kind: "uups",
             initializer: "initialize",
-            timeout: 180000 // 3分钟超时
+            timeout: 180000 // 3 minutes timeout
           }
         );
 
-        // 等待更多的区块确认
+        // Wait for more block confirmations
         await llaToken.waitForDeployment();
         await llaToken.deploymentTransaction()?.wait(2);
 
@@ -124,15 +124,19 @@ async function main() {
       upgraderAddress: admin.address,
       proxyAddress: proxyAddress,
       logicAddress: implementationAddress,
+      time: new Date().toLocaleString(),
     };
 
-    // 创建输出目录（如果不存在）
+    // Create output directory (if not exists)
     const outputDir = path.join(__dirname, "../output");
     if (!fs.existsSync(outputDir)) {
       fs.mkdirSync(outputDir, { recursive: true });
     }
 
-    const outputPath = path.join(outputDir, "deployLLAToken.json");
+    const outputPath = path.join(
+      outputDir,
+      new Date().toLocaleDateString() + "deployLLAToken.json"
+    );
     fs.writeFileSync(outputPath, JSON.stringify(info, null, 2), "utf-8");
     console.log("Deployment information saved to", outputPath);
     console.log("Deployment completed successfully.");
