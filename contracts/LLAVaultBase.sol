@@ -439,8 +439,10 @@ contract LLAVaultBase is
     }
 
     /**
-     * @notice Sets the total mint count (for testing purposes)
-     * @dev Can only be called by accounts with ADMIN_ROLE
+     * @notice Sets the total mint count (for testing purposes only)
+     * @dev This function is intended for testing and debugging purposes only.
+     *      It should not be used in production environments.
+     *      Ensure this function is disabled or removed in production deployments.
      * @param count The new total mint count
      */
     function setTotalMintCount(uint256 count) external onlyRole(ADMIN_ROLE) {
@@ -448,8 +450,7 @@ contract LLAVaultBase is
     }
 }
 
-/**
- * @notice Interface for ERC20 tokens with minting capability
+/**@notice Interface for ERC20 tokens with minting capability
  */
 interface IERC20Mintable {
     event Minting(address indexed to, uint256 amount);

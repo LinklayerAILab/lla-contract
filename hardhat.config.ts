@@ -34,11 +34,19 @@ const {
   SEPOLIA_URL: string;
 };
 const config: HardhatUserConfig = {
-  solidity: "0.8.28",
+  solidity: {
+    version: "0.8.19",
+  
+  },
 
   networks: {
+    hardhat: {
+      forking: {
+        url: SEPOLIA_URL,
+        enabled: process.env.NODE_ENV !== "production", // 仅在非生产环境启用
+      },
+    },
     sepolia: {
-      // url: SEPOLIA_URL + "/v3/" + "574138be66974922bc4c949d5b1282ae",
       url: SEPOLIA_URL,
       accounts: [
         OWNER_ADDR,
@@ -68,8 +76,6 @@ const config: HardhatUserConfig = {
     },
   },
   ignition: {}, // Remove 'moduleDirectory' as it is no longer supported
-}
-
-
+};
 
 export default config;
