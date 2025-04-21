@@ -6,7 +6,6 @@ import { ContractFactory } from "ethers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
 import { bigint } from "hardhat/internal/core/params/argumentTypes";
 describe("LLAVaultBase", function () {
-  const mintingRate = BigInt(60); // 60%
   const fundingRate = BigInt(30); // 30%
   let LLAXTokenFactory: ContractFactory;
   let llaVault: LLAVaultBase;
@@ -61,7 +60,7 @@ describe("LLAVaultBase", function () {
 
     await mockToken.waitForDeployment();
     LLAProxyAddress = await mockToken.getAddress();
-
+    console.log("LLAProxyAddress:", LLAProxyAddress);
     // Deploy a second mock token for testing.
     mockToken2 = (await upgrades.deployProxy(
       LLAXTokenFactory,
@@ -72,7 +71,8 @@ describe("LLAVaultBase", function () {
       }
     )) as LLAXToken;
     await mockToken2.waitForDeployment();
-
+    const mockAddress = await mockToken2.getAddress();
+    console.log("mockToken2:", mockAddress);
     // Deploy the LLAVaultBase contract.
     const LLAVaultFactory = await ethers.getContractFactory("LLAVaultBase");
     llaVault = (await upgrades.deployProxy(
@@ -608,7 +608,7 @@ describe("LLAVaultBase", function () {
       // User initial balance mockToken
       const userBalanceBefore = await mockToken2.balanceOf(addr1.address);
       const depositAmount = ethers.parseEther("100");
-
+      const mintingRate = await llaVault.getMintingRate();
       // Approve and deposit
       await mockToken2.connect(addr1).approve(VaultProxyAddress, depositAmount);
       await llaVault
@@ -627,6 +627,8 @@ describe("LLAVaultBase", function () {
         (depositAmount * BigInt(fundingRate)) / BigInt(100);
       const expectedSelfAmount =
         (depositAmount * (BigInt(100) - BigInt(fundingRate))) / BigInt(100);
+      // 根据阶梯费率计算mint的期望值
+
       const expectedMintAmount =
         (depositAmount * BigInt(mintingRate)) / BigInt(100);
 
@@ -646,6 +648,7 @@ describe("LLAVaultBase", function () {
     });
 
     it("should correctly trigger PaymentDeposited and MintToAddress events", async function () {
+      const mintingRate = await llaVault.getMintingRate();
       const depositAmount = ethers.parseEther("50");
       const tokenAddress = await mockToken.getAddress();
       // Calculate expected minted amount
@@ -695,6 +698,7 @@ describe("LLAVaultBase", function () {
         addr1.address,
         ethers.parseEther("100000")
       );
+      const mintingRate = await llaVault.getMintingRate();
       // Calculate expected minted amount (using rounding)
       const expectedMintAmount = (amount * BigInt(mintingRate) + 50n) / 100n;
 
@@ -713,6 +717,7 @@ describe("LLAVaultBase", function () {
     });
     it("should correctly handle deposits with very small amounts", async function () {
       // Use a very small amount, which may result in a minted amount of 0
+      const mintingRate = await llaVault.getMintingRate();
       const tinyAmount = 1n;
       const tokenAddress = await USDCToken.getAddress();
 
@@ -737,6 +742,7 @@ describe("LLAVaultBase", function () {
       expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
     });
     it("should correctly handle deposit precision for large amounts", async function () {
+      const mintingRate = await llaVault.getMintingRate();
       // Use a large amount, but ensure it cannot be divided by 100
       const largeAmount = ethers.parseEther("1000000") + 1n;
       const tokenAddress = await USDCToken.getAddress();
@@ -762,6 +768,7 @@ describe("LLAVaultBase", function () {
       expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
     });
     it("should correctly handle deposits with low precision tokens", async function () {
+      const mintingRate = await llaVault.getMintingRate();
       // Use an amount that cannot be divided by 100
       const amount = 1000001n; // 1.000001 USDC (6 decimal places)
 
@@ -789,20 +796,22 @@ describe("LLAVaultBase", function () {
     it("should verify the correctness of rounding", async function () {
       // Test rounding edge cases
       const testCases = [
-        { amount: 49n, expectedMint: 29n }, // 49 * 60% = 29.4, rounded to 29
-        { amount: 50n, expectedMint: 30n }, // 50 * 60% = 30, rounded to 30
-        { amount: 51n, expectedMint: 31n }, // 51 * 60% = 30.6, rounded to 31
-        { amount: 99n, expectedMint: 59n }, // 99 * 60% = 59.4, rounded to 59
-        { amount: 100n, expectedMint: 60n }, // 100 * 60% = 60, rounded to 60
-        { amount: 101n, expectedMint: 61n }, // 101 * 60% = 60.6, rounded to 61
+        { amount: 49n },
+        { amount: 50n },
+        { amount: 51n },
+        { amount: 99n },
+        { amount: 100n },
+        { amount: 101n },
       ];
 
       const tokenAddress = await USDCToken.getAddress();
 
       for (const testCase of testCases) {
+        const mintingRate = await llaVault.getMintingRate();
         // Mint tokens
         await USDCToken.connect(minter).mint(addr1.address, testCase.amount);
-
+        const expectedMintAmount =
+          (testCase.amount * BigInt(mintingRate) + 50n) / 100n;
         // Approve and deposit
         await USDCToken.connect(addr1).approve(
           VaultProxyAddress,
@@ -817,10 +826,175 @@ describe("LLAVaultBase", function () {
         // Verify the minted amount
         const balanceAfter = await mockToken.balanceOf(addr1.address);
         expect(balanceAfter - balanceBefore).to.equal(
-          testCase.expectedMint,
-          `Amount ${testCase.amount} should mint ${testCase.expectedMint} tokens`
+          expectedMintAmount,
+          `Amount ${testCase.amount} should mint ${expectedMintAmount} tokens`
         );
       }
+    });
+  });
+
+  describe("Minting Rate Threshold Tests", function () {
+    it("should initialize with default minting rate thresholds", async function () {
+      const tier1 = await llaVault.mintingRateThresholds(1);
+      const tier2 = await llaVault.mintingRateThresholds(2);
+      const tier3 = await llaVault.mintingRateThresholds(3);
+      const tier4 = await llaVault.mintingRateThresholds(4);
+      const tier5 = await llaVault.mintingRateThresholds(5);
+
+      expect(tier1.mintRate).to.equal(50);
+      expect(tier1.mintCount).to.equal(100);
+
+      expect(tier2.mintRate).to.equal(40);
+      expect(tier2.mintCount).to.equal(10000);
+
+      expect(tier3.mintRate).to.equal(30);
+      expect(tier3.mintCount).to.equal(100000);
+
+      expect(tier4.mintRate).to.equal(20);
+      expect(tier4.mintCount).to.equal(1000000);
+
+      expect(tier5.mintRate).to.equal(10);
+      expect(tier5.mintCount).to.equal(ethers.MaxUint256);
+    });
+
+    it("should allow admin to update minting rate thresholds", async function () {
+      const newRate = 35;
+      const newCount = 150000;
+
+      await llaVault
+        .connect(owner)
+        .updateMintingRateThreshold(3, newRate, newCount);
+
+      const updatedTier3 = await llaVault.mintingRateThresholds(3);
+      expect(updatedTier3.mintRate).to.equal(newRate);
+      expect(updatedTier3.mintCount).to.equal(newCount);
+    });
+
+    it("should revert when a non-admin tries to update minting rate thresholds", async function () {
+      await expect(
+        llaVault.connect(addr1).updateMintingRateThreshold(3, 35, 150000)
+      )
+        .to.be.revertedWithCustomError(
+          llaVault,
+          "AccessControlUnauthorizedAccount"
+        )
+        .withArgs(addr1.address, await llaVault.ADMIN_ROLE());
+    });
+
+    it("should revert when updating with invalid tier or rate", async function () {
+      await expect(
+        llaVault.connect(owner).updateMintingRateThreshold(0, 35, 150000)
+      ).to.be.revertedWithCustomError(llaVault, "InvalidAmount");
+
+      await expect(
+        llaVault.connect(owner).updateMintingRateThreshold(6, 35, 150000)
+      ).to.be.revertedWithCustomError(llaVault, "InvalidAmount");
+
+      await expect(
+        llaVault.connect(owner).updateMintingRateThreshold(3, 101, 150000)
+      ).to.be.revertedWithCustomError(llaVault, "InvalidAmount");
+    });
+
+    it("should correctly calculate minting rate based on totalMintCount", async function () {
+      // Simulate totalMintCount in different tiers
+      await llaVault.connect(owner).updateMintingRateThreshold(1, 50, 100);
+      await llaVault.connect(owner).updateMintingRateThreshold(2, 40, 1000);
+      await llaVault.connect(owner).updateMintingRateThreshold(3, 30, 10000);
+
+      // Test tier 1
+      await llaVault.connect(owner).setTotalMintCount(50); // Simulate totalMintCount
+      expect(await llaVault.getMintingRate()).to.equal(50);
+
+      // Test tier 2
+      await llaVault.connect(owner).setTotalMintCount(500); // Simulate totalMintCount
+      expect(await llaVault.getMintingRate()).to.equal(40);
+
+      // Test tier 3
+      await llaVault.connect(owner).setTotalMintCount(5000); // Simulate totalMintCount
+      expect(await llaVault.getMintingRate()).to.equal(30);
+    });
+  });
+
+  describe("Deposit with Minting Rate Thresholds", function () {
+    beforeEach(async function () {
+      // Ensure the token is added to the supported list
+      const tokenAddress = await mockToken.getAddress();
+      try {
+        await llaVault.connect(tokenManager).addSupportedToken(tokenAddress);
+      } catch (error) {
+        // If the token is already in the supported list, ignore the error
+      }
+
+      // Mint some tokens to the test account
+      await mockToken
+        .connect(minter)
+        .mint(addr1.address, ethers.parseEther("1000"));
+
+      // Ensure the contract is not paused
+      if (await llaVault.paused()) {
+        await llaVault.connect(pauser).unpause();
+      }
+
+      // Ensure the vault contract has minting permissions
+      try {
+        await mockToken
+          .connect(owner)
+          .addRole(await mockToken.MINTER_ROLE(), VaultProxyAddress);
+      } catch (error) {
+        // If the permissions are already granted, ignore the error
+      }
+    });
+
+    it("should correctly mint tokens based on the current minting rate threshold", async function () {
+      const depositAmount = ethers.parseEther("100");
+      const authAmount = ethers.parseEther("100000");
+      const tokenAddress = await mockToken.getAddress();
+      await mockToken.connect(minter).mint(addr1.address, authAmount);
+      const balance = await mockToken.balanceOf(addr1.address);
+      console.log("balance", ethers.formatEther(balance));
+      // Approve the vault contract to spend tokens
+      await mockToken.connect(addr1).approve(VaultProxyAddress, authAmount);
+
+      // Simulate totalMintCount in tier 1
+      await llaVault.connect(owner).setTotalMintCount(50); // Simulate totalMintCount
+      const mintingRate = await llaVault.getMintingRate();
+      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
+
+      // Verify the minted amount
+      const expectedMintAmount = (depositAmount * mintingRate) / BigInt(100); // 50% rate
+      const mintBalance = await mockToken.balanceOf(addr1.address);
+      expect(balance - mintBalance).to.equal(expectedMintAmount);
+    });
+
+    it("should correctly handle deposits across multiple thresholds", async function () {
+      const depositAmount = ethers.parseEther("100");
+      const authAmount = ethers.parseEther("100000");
+      const tokenAddress = await mockToken2.getAddress();
+      const balance = await mockToken.balanceOf(addr1.address);
+      // Approve the vault contract to spend tokens
+      await mockToken2.connect(addr1).approve(VaultProxyAddress, authAmount);
+
+      // Simulate totalMintCount in tier 1
+      await llaVault.connect(owner).setTotalMintCount(50); // Simulate totalMintCount
+      const mintingRate = await llaVault.getMintingRate();
+      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
+
+      // Verify the minted amount for tier 1
+      const expectedMintAmountTier1 =
+        (depositAmount * mintingRate + 50n) / 100n; // 50% rate
+      const mintBalanceTier1 = await mockToken.balanceOf(addr1.address);
+      expect(mintBalanceTier1).to.equal(expectedMintAmountTier1 + balance);
+
+      // Simulate totalMintCount in tier 2
+      await llaVault.connect(owner).setTotalMintCount(500); // Simulate totalMintCount
+      const mintingRate2 = await llaVault.getMintingRate();
+      const newB = await mockToken.balanceOf(addr1.address);
+      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
+      // Verify the minted amount for tier 2
+      const expectedMintAmountTier2 =
+        (depositAmount * mintingRate2 + 50n) / 100n; // 40% rate
+      const mintBalanceTier2 = await mockToken.balanceOf(addr1.address);
+      expect(mintBalanceTier2).to.equal(expectedMintAmountTier2 + newB);
     });
   });
 

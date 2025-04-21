@@ -37,6 +37,14 @@ struct PaymentPage {
     uint256 total;
 }
 
+/**
+ * @notice Structure to store minting rate and count for each threshold
+ */
+struct MintingRateInfo {
+    uint256 mintRate; // Minting rate (percentage)
+    uint256 mintCount; // Total mint count for this threshold
+}
+
 contract LLAVaultBase is
     Initializable,
     PausableUpgradeable,
@@ -72,6 +80,12 @@ contract LLAVaultBase is
     uint256 public constant FUNDING_RATE = 30; // 30%
     /// @notice Minting Rate of LLAX Token
     uint256 public constant MINTING_RATE = 60; // 60%
+
+    /// @notice Total number of minting transactions (deprecated, kept for storage compatibility)
+    uint256 public totalMintCount;
+
+    /// @notice Mapping to store minting rate thresholds (deprecated, kept for storage compatibility)
+    mapping(uint256 => MintingRateInfo) public mintingRateThresholds;
 
     // Events
     /// @notice Emitted when a withdrawal is executed
@@ -174,6 +188,7 @@ contract LLAVaultBase is
     error MintingInProgress();
     /// @notice Reentrancy Protection Error in Minting
     error MintingFailed();
+
     function initialize(
         address _defaultAdmin,
         address _pauser,
@@ -205,6 +220,13 @@ contract LLAVaultBase is
         token = _token;
         multiSig = _multiSig;
         emit TokenUpdated(_token);
+
+        // Initialize default minting rate thresholds
+        mintingRateThresholds[1] = MintingRateInfo({mintRate: 50, mintCount: 100});       // 1st tier: 50%, 0-100
+        mintingRateThresholds[2] = MintingRateInfo({mintRate: 40, mintCount: 10000});    // 2nd tier: 40%, 101-10000
+        mintingRateThresholds[3] = MintingRateInfo({mintRate: 30, mintCount: 100000});   // 3rd tier: 30%, 10001-100000
+        mintingRateThresholds[4] = MintingRateInfo({mintRate: 20, mintCount: 1000000});  // 4th tier: 20%, 100001-1000000
+        mintingRateThresholds[5] = MintingRateInfo({mintRate: 10, mintCount: type(uint256).max}); // 5th tier: 10%, >1000000
     }
 
     /**
@@ -225,6 +247,23 @@ contract LLAVaultBase is
         if (_newMultiSig == address(0)) revert InvalidAddress(address(0));
         multiSig = _newMultiSig;
         emit MultiSigUpdated(_newMultiSig);
+    }
+
+    /**
+     * @notice Updates the minting rate threshold
+     * @dev Can only be called by the admin
+     * @param tier The tier key (1, 2, 3, 4, 5)
+     * @param rate The minting rate (percentage)
+     * @param count The mint count threshold for this tier
+     */
+    function updateMintingRateThreshold(
+        uint256 tier,
+        uint256 rate,
+        uint256 count
+    ) external onlyRole(ADMIN_ROLE) {
+        if (rate > 100) revert InvalidAmount(rate); // Ensure rate is a valid percentage
+        if (tier == 0 || tier > 5) revert InvalidAmount(tier); // Ensure tier is valid
+        mintingRateThresholds[tier] = MintingRateInfo({mintRate: rate, mintCount: count});
     }
 
     /**
@@ -256,6 +295,7 @@ contract LLAVaultBase is
         if (_amount <= 0) revert InvalidAmount(_amount);
         if (_minting[msg.sender]) revert MintingInProgress();
         _minting[msg.sender] = true;
+
         // Effects before interactions
         payments[msg.sender].push(
             Payment({
@@ -265,27 +305,44 @@ contract LLAVaultBase is
                 token: _token
             })
         );
+
         IERC20 myToken = IERC20(_token);
         uint256 sendAmountToMultisig = (_amount * FUNDING_RATE) / 100;
         uint256 sendAmountToSelf = _amount - sendAmountToMultisig;
+
         // External interactions
-        // Transfer the specified amount to the multi-signature wallet
         myToken.safeTransferFrom(msg.sender, multiSig, sendAmountToMultisig);
-        // Transfer the remaining amount to the vault contract itself
         myToken.safeTransferFrom(msg.sender, address(this), sendAmountToSelf);
         emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
+
+        // Calculate MINTING_RATE based on totalMintCount
+        uint256 mintingRate = getMintingRate();
+
         // Mint LLA tokens to the user
-        uint256 mintAmount = (_amount * MINTING_RATE + 50) / 100;
+        uint256 mintAmount = (_amount * mintingRate + 50) / 100;
         try IERC20Mintable(token).mint(msg.sender, mintAmount) {
             emit MintToAddress(msg.sender, mintAmount);
+            totalMintCount++; // Increment total mint count
         } catch {
-            // If the minting fails, ensure the state is unlocked.
             _minting[msg.sender] = false;
             revert MintingFailed();
         }
 
         // Reset the minting state
         _minting[msg.sender] = false;
+    }
+
+    /**
+     * @notice Determines the minting rate based on the total number of minting transactions
+     * @return The minting rate as a percentage
+     */
+    function getMintingRate() public view returns (uint256) {
+        for (uint256 tier = 1; tier <= 5; tier++) {
+            if (totalMintCount <= mintingRateThresholds[tier].mintCount) {
+                return mintingRateThresholds[tier].mintRate;
+            }
+        }
+        return 0; // Default to 0 if no tier matches
     }
 
     /**
@@ -379,6 +436,15 @@ contract LLAVaultBase is
         }
 
         return PaymentPage({data: result, total: total});
+    }
+
+    /**
+     * @notice Sets the total mint count (for testing purposes)
+     * @dev Can only be called by accounts with ADMIN_ROLE
+     * @param count The new total mint count
+     */
+    function setTotalMintCount(uint256 count) external onlyRole(ADMIN_ROLE) {
+        totalMintCount = count;
     }
 }
 
