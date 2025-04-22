@@ -100,6 +100,9 @@ contract LLAToken is
     function mint(address to, uint256 amount) public onlyRole(MINTER_ROLE) {
         if(amount == 0) revert InvalidAmount(amount);
         if(to == address(0)) revert InvalidAddress(to);
+        if ((totalSupply() + amount) > TOTAL_SUPPLY) {
+            revert InvalidAmount(amount); // You can define a more specific error if needed
+        }
         _mint(to, amount);
     }
 

@@ -68,7 +68,7 @@ describe("LLAXToken", function () {
     });
 
     it("should have the correct total supply constant", async function () {
-      const expectedTotalSupply = ethers.parseEther("10000000000"); // 100_0000_0000 * 1e18
+      const expectedTotalSupply = ethers.parseEther("650000000"); // 6_5000_0000 * 1e18
       expect(await llaToken.TOTAL_SUPPLY()).to.equal(expectedTotalSupply);
     });
 
@@ -122,65 +122,7 @@ describe("LLAXToken", function () {
     });
   });
 
-  describe("Minting Tests", function () {
-    // Test minting with a zero address and zero amount.
-    it("should revert when minting to zero address", async function () {
-      await expect(llaToken.connect(minter).mint(ethers.ZeroAddress, 100))
-        .to.be.revertedWithCustomError(llaToken, "InvalidAddress")
-        .withArgs(ethers.ZeroAddress);
-    });
-
-    it("should revert when minting zero amount", async function () {
-      await expect(llaToken.connect(minter).mint(addr1.address, 0))
-        .to.be.revertedWithCustomError(llaToken, "InvalidAmount")
-        .withArgs(0);
-    });
-
-    it("should mint tokens to an address", async function () {
-      // Mint tokens to addr1 and verify balance
-      const amount = 100;
-      await llaToken.connect(minter).mint(addr1.address, amount);
-      expect(await llaToken.balanceOf(addr1.address)).to.equal(amount);
-    });
-
-    it("should mint a large amount of tokens", async function () {
-      const largeAmount = ethers.parseEther("1000000"); // 1 million tokens
-      await llaToken.connect(minter).mint(addr3.address, largeAmount);
-      expect(await llaToken.balanceOf(addr3.address)).to.equal(largeAmount);
-    });
-
-    it("should revert when non-minter tries to mint", async function () {
-      // Attempt to mint from a non-minter account and expect a revert
-      const amount = 100;
-      await expect(llaToken.connect(addr1).mint(addr2.address, amount))
-        .to.be.revertedWithCustomError(
-          llaToken,
-          "AccessControlUnauthorizedAccount"
-        )
-        .withArgs(addr1.address, await llaToken.MINTER_ROLE());
-    });
-
-    it("should revert when minting zero amount", async function () {
-      await expect(llaToken.connect(minter).mint(addr1.address, 0))
-        .to.be.revertedWithCustomError(llaToken, "InvalidAmount")
-        .withArgs(0);
-    });
-
-    it("should revert when minting to zero address", async function () {
-      await expect(llaToken.connect(minter).mint(ethers.ZeroAddress, 100))
-        .to.be.revertedWithCustomError(llaToken, "InvalidAddress")
-        .withArgs(ethers.ZeroAddress);
-    });
-
-    it("should update total supply after minting", async function () {
-      const initialSupply = await llaToken.totalSupply();
-      const mintAmount = 1000;
-      await llaToken.connect(minter).mint(addr1.address, mintAmount);
-      expect(await llaToken.totalSupply()).to.equal(
-        initialSupply + BigInt(mintAmount)
-      );
-    });
-  });
+  
 
   describe("Burning Tests", function () {
     it("should burn tokens from the owner", async function () {
@@ -573,6 +515,97 @@ describe("LLAXToken", function () {
       expect(await llaToken.balanceOf(addr3.address)).to.equal(
         BigInt(amount * iterations) + BigInt(o3)
       );
+    });
+  });
+  describe("Minting Tests", function () {
+    // Test minting with a zero address and zero amount.
+    it("should revert when minting to zero address", async function () {
+      await expect(llaToken.connect(minter).mint(ethers.ZeroAddress, 100))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
+
+    it("should revert when minting zero amount", async function () {
+      await expect(llaToken.connect(minter).mint(addr1.address, 0))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAmount")
+        .withArgs(0);
+    });
+
+    it("should mint tokens to an address", async function () {
+      // Mint tokens to addr1 and verify balance
+       const b1 = await llaToken.balanceOf(addr1.address);
+       // Mint tokens to addr1 and verify balance
+       const amount = ethers.parseEther("100");
+       await llaToken.connect(minter).mint(addr1.address, amount);
+       expect(await llaToken.balanceOf(addr1.address)).to.equal(b1 + amount);
+    });
+
+    it("should mint a large amount of tokens", async function () {
+      const b1 = await llaToken.balanceOf(addr3.address);
+      const largeAmount = ethers.parseEther("1000000"); // 1 million tokens
+      await llaToken.connect(minter).mint(addr3.address, largeAmount);
+      expect(await llaToken.balanceOf(addr3.address)).to.equal(
+        largeAmount + b1
+      );
+    });
+
+    it("should revert when non-minter tries to mint", async function () {
+      // Attempt to mint from a non-minter account and expect a revert
+      const amount = 100;
+      await expect(llaToken.connect(addr1).mint(addr2.address, amount))
+        .to.be.revertedWithCustomError(
+          llaToken,
+          "AccessControlUnauthorizedAccount"
+        )
+        .withArgs(addr1.address, await llaToken.MINTER_ROLE());
+    });
+
+    it("should revert when minting zero amount", async function () {
+      await expect(llaToken.connect(minter).mint(addr1.address, 0))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAmount")
+        .withArgs(0);
+    });
+
+    it("should revert when minting to zero address", async function () {
+      await expect(llaToken.connect(minter).mint(ethers.ZeroAddress, 100))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
+
+    it("should update total supply after minting", async function () {
+      const initialSupply = await llaToken.totalSupply();
+      const mintAmount = 1000;
+      await llaToken.connect(minter).mint(addr1.address, mintAmount);
+      expect(await llaToken.totalSupply()).to.equal(
+        initialSupply + BigInt(mintAmount)
+      );
+    });
+    it("should update total supply after minting", async function () {
+      const initialSupply = await llaToken.totalSupply();
+      const mintAmount = 1000;
+      await llaToken.connect(minter).mint(addr1.address, mintAmount);
+      expect(await llaToken.totalSupply()).to.equal(
+        initialSupply + BigInt(mintAmount)
+      );
+    });
+
+    it("should allow minting up to the total supply", async function () {
+      const maxSupply = await llaToken.TOTAL_SUPPLY();
+      const hadSupply = await llaToken.totalSupply();
+
+      const mintAmount = maxSupply - hadSupply;
+
+      // Mint tokens up to the maximum supply
+      await llaToken.connect(minter).mint(addr1.address, mintAmount);
+
+      // Verify total supply matches the maximum supply
+      const totalSupplyAfterMint = await llaToken.totalSupply();
+
+      expect(totalSupplyAfterMint).to.equal(maxSupply);
+
+      await expect(llaToken.connect(minter).mint(addr1.address, mintAmount))
+        .to.be.revertedWithCustomError(llaToken, "InvalidAmount")
+        .withArgs(mintAmount);
     });
   });
 });

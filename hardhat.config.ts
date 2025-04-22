@@ -34,18 +34,9 @@ const {
   SEPOLIA_URL: string;
 };
 const config: HardhatUserConfig = {
-  solidity: {
-    version: "0.8.19",
-  
-  },
+  solidity: "0.8.28",
 
   networks: {
-    hardhat: {
-      forking: {
-        url: SEPOLIA_URL,
-        enabled: process.env.NODE_ENV !== "production", // 仅在非生产环境启用
-      },
-    },
     sepolia: {
       url: SEPOLIA_URL,
       accounts: [

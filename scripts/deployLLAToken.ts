@@ -2,8 +2,8 @@ import { ethers, upgrades } from "hardhat";
 import { LLAToken } from "../typechain-types";
 import * as dotenv from "dotenv";
 import * as path from "path";
+import fs from "fs";
 dotenv.config();
-const fs = require("fs");
 async function main() {
   console.log("Deploying LLAToken to bsctest network...");
 
