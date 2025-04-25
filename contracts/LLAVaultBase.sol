@@ -188,6 +188,11 @@ contract LLAVaultBase is
     error MintingInProgress();
     /// @notice Reentrancy Protection Error in Minting
     error MintingFailed();
+    /// @notice Thrown when the vault's balance is insufficient for the withdrawal
+    /// @param requested The requested withdrawal amount
+    /// @param available The available balance in the vault
+    error InsufficientBalance(uint256 requested, uint256 available);
+
 
     function initialize(
         address _defaultAdmin,
@@ -448,6 +453,34 @@ contract LLAVaultBase is
     function setTotalMintCount(uint256 count) external onlyRole(ADMIN_ROLE) {
         totalMintCount = count;
     }
+
+    /**
+ * @notice Withdraws tokens from the vault to a specified address
+ * @dev Can only be called by accounts with the ADMIN_ROLE
+ * @param _token The address of the token to withdraw
+ * @param _to The recipient address
+ * @param _amount The amount of tokens to withdraw
+ */
+function withdraw(
+    address _token,
+    address _to,
+    uint256 _amount
+) external onlyRole(ADMIN_ROLE) whenNotPaused nonReentrant {
+    if (_token == address(0)) revert InvalidAddress(_token);
+    if (_to == address(0)) revert InvalidAddress(_to);
+    if (_amount == 0) revert InvalidAmount(_amount);
+
+    IERC20 myToken = IERC20(_token);
+
+    // Check the vault's balance
+    uint256 vaultBalance = myToken.balanceOf(address(this));
+    if (_amount > vaultBalance) revert InsufficientBalance(_amount, vaultBalance);
+
+    // Transfer the tokens
+    myToken.safeTransfer(_to, _amount);
+
+    emit Withdrawal(_to, block.timestamp, _amount, _token);
+}
 }
 
 /**@notice Interface for ERC20 tokens with minting capability
