@@ -188,21 +188,25 @@ contract NewLLAVaultBase is
     error MintingInProgress();
     /// @notice Reentrancy Protection Error in Minting
     error MintingFailed();
+    /// @notice Thrown when the vault's balance is insufficient for the withdrawal
+    /// @param requested The requested withdrawal amount
+    /// @param available The available balance in the vault
+    error InsufficientBalance(uint256 requested, uint256 available);
 
     function initialize(
         address _defaultAdmin,
         address _pauser,
-        address _minter,
         address _tokenManager,
         address _upgrader,
+        address _tokenWithdraw,
         address _token,
         address _multiSig
     ) public initializer {
         if (_defaultAdmin == address(0)) revert InvalidAddress(address(0));
         if (_pauser == address(0)) revert InvalidAddress(address(0));
-        if (_minter == address(0)) revert InvalidAddress(address(0));
         if (_tokenManager == address(0)) revert InvalidAddress(address(0));
         if (_upgrader == address(0)) revert InvalidAddress(address(0));
+        if (_tokenWithdraw == address(0)) revert InvalidAddress(address(0));
         if (_token == address(0)) revert InvalidAddress(address(0));
         if (_multiSig == address(0)) revert InvalidAddress(address(0));
 
@@ -212,9 +216,9 @@ contract NewLLAVaultBase is
         super.initializeAuth(
             _defaultAdmin,
             _pauser,
-            _minter,
             _tokenManager,
-            _upgrader
+            _upgrader,
+            _tokenWithdraw
         );
 
         token = _token;
@@ -222,11 +226,26 @@ contract NewLLAVaultBase is
         emit TokenUpdated(_token);
 
         // Initialize default minting rate thresholds
-        mintingRateThresholds[1] = MintingRateInfo({mintRate: 50, mintCount: 100});       // 1st tier: 50%, 0-100
-        mintingRateThresholds[2] = MintingRateInfo({mintRate: 40, mintCount: 10000});    // 2nd tier: 40%, 101-10000
-        mintingRateThresholds[3] = MintingRateInfo({mintRate: 30, mintCount: 100000});   // 3rd tier: 30%, 10001-100000
-        mintingRateThresholds[4] = MintingRateInfo({mintRate: 20, mintCount: 1000000});  // 4th tier: 20%, 100001-1000000
-        mintingRateThresholds[5] = MintingRateInfo({mintRate: 10, mintCount: type(uint256).max}); // 5th tier: 10%, >1000000
+        mintingRateThresholds[1] = MintingRateInfo({
+            mintRate: 50,
+            mintCount: 100
+        }); // 1st tier: 50%, 0-100
+        mintingRateThresholds[2] = MintingRateInfo({
+            mintRate: 40,
+            mintCount: 10000
+        }); // 2nd tier: 40%, 101-10000
+        mintingRateThresholds[3] = MintingRateInfo({
+            mintRate: 30,
+            mintCount: 100000
+        }); // 3rd tier: 30%, 10001-100000
+        mintingRateThresholds[4] = MintingRateInfo({
+            mintRate: 20,
+            mintCount: 1000000
+        }); // 4th tier: 20%, 100001-1000000
+        mintingRateThresholds[5] = MintingRateInfo({
+            mintRate: 10,
+            mintCount: type(uint256).max
+        }); // 5th tier: 10%, >1000000
     }
 
     /**
@@ -263,7 +282,10 @@ contract NewLLAVaultBase is
     ) external onlyRole(ADMIN_ROLE) {
         if (rate > 100) revert InvalidAmount(rate); // Ensure rate is a valid percentage
         if (tier == 0 || tier > 5) revert InvalidAmount(tier); // Ensure tier is valid
-        mintingRateThresholds[tier] = MintingRateInfo({mintRate: rate, mintCount: count});
+        mintingRateThresholds[tier] = MintingRateInfo({
+            mintRate: rate,
+            mintCount: count
+        });
     }
 
     /**
@@ -439,19 +461,50 @@ contract NewLLAVaultBase is
     }
 
     /**
-     * @notice Sets the total mint count (for testing purposes)
-     * @dev Can only be called by accounts with ADMIN_ROLE
+     * @notice Sets the total mint count (for testing purposes only)
+     * @dev This function is intended for testing and debugging purposes only.
+     *      It should not be used in production environments.
+     *      Ensure this function is disabled or removed in production deployments.
      * @param count The new total mint count
      */
     function setTotalMintCount(uint256 count) external onlyRole(ADMIN_ROLE) {
         totalMintCount = count;
     }
+
+    /**
+     * @notice Withdraws tokens from the vault to a specified address
+     * @dev Can only be called by accounts with the ADMIN_ROLE
+     * @param _token The address of the token to withdraw
+     * @param _to The recipient address
+     * @param _amount The amount of tokens to withdraw
+     */
+    function withdraw(
+        address _token,
+        address _to,
+        uint256 _amount
+    ) external onlyRole(TOKEN_WITHDRAW_ROLE) whenNotPaused nonReentrant {
+        if (_token == address(0)) revert InvalidAddress(_token);
+        if (_to == address(0)) revert InvalidAddress(_to);
+        if (_amount == 0) revert InvalidAmount(_amount);
+
+        IERC20 myToken = IERC20(_token);
+
+        // Check the vault's balance
+        uint256 vaultBalance = myToken.balanceOf(address(this));
+        if (_amount > vaultBalance)
+            revert InsufficientBalance(_amount, vaultBalance);
+
+        // Transfer the tokens
+        myToken.safeTransfer(_to, _amount);
+
+        emit Withdrawal(_to, block.timestamp, _amount, _token);
+    }
 }
 
-/**
- * @notice Interface for ERC20 tokens with minting capability
+/**@notice Interface for ERC20 tokens with minting capability
  */
 interface IERC20Mintable {
     event Minting(address indexed to, uint256 amount);
+
     function mint(address to, uint256 amount) external;
 }
