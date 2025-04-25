@@ -34,7 +34,16 @@ const {
   SEPOLIA_URL: string;
 };
 const config: HardhatUserConfig = {
-  solidity: "0.8.28",
+  solidity: {
+    version: "0.8.28",
+    settings: {
+      optimizer: {
+        enabled: true,
+        runs: 200,
+      },
+
+    },
+  },
 
   networks: {
     sepolia: {
@@ -52,7 +61,7 @@ const config: HardhatUserConfig = {
       chainId: 11155111,
     },
     bsctest: {
-      url: "https://bsc-testnet-dataseed.bnbchain.org",
+      url: "https://bsc-testnet.infura.io/v3/574138be66974922bc4c949d5b1282ae",
       accounts: [
         OWNER_ADDR,
         OWNER_ADDR,

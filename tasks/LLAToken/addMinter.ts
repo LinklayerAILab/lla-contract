@@ -34,7 +34,7 @@ async function main() {
   }
   // Get available provider
   const provider = await getWorkingProvider();
-  const admin = new ethers.Wallet("0x" + process.env.PAUSER_ADDR!, provider);
+  const admin = new ethers.Wallet("0x" + process.env.OWNER_ADDR!, provider);
   console.log("Admin address:", admin.address);
   // Validate address format
   if (!ethers.isAddress(admin.address)) {
@@ -56,7 +56,7 @@ async function main() {
       proxyAddress
     ) as unknown as LLAToken;
 
-    const newMinterAddress = "0x2a241105a70C6372F9b4274158d74EFA38ab5CbB";
+    const newMinterAddress = "0xCBD46A2D6c99A7B8daa2C35DE2aEad37Aa36f506";
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
