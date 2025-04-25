@@ -13,6 +13,7 @@ describe("LLAVaultBase", function () {
   let minter: HardhatEthersSigner;
   let upgrader: HardhatEthersSigner;
   let tokenManager: HardhatEthersSigner;
+  let tokenWithdraw: HardhatEthersSigner;
   let multiSig: HardhatEthersSigner;
   let addr1: HardhatEthersSigner;
   let addr2: HardhatEthersSigner;
@@ -33,6 +34,7 @@ describe("LLAVaultBase", function () {
       minter,
       upgrader,
       tokenManager,
+      tokenWithdraw,
       multiSig,
       addr1,
       addr2,
@@ -40,9 +42,9 @@ describe("LLAVaultBase", function () {
     ] = await ethers.getSigners();
     console.log("owner:", owner.address);
     console.log("pauser:", pauser.address);
-    console.log("minter:", minter.address);
     console.log("upgrader:", upgrader.address);
     console.log("tokenManager:", tokenManager.address);
+    console.log("tokenWithdraw:", tokenWithdraw.address);
     console.log("multiSig:", multiSig.address);
     console.log("addr1:", addr1.address);
 
@@ -79,9 +81,9 @@ describe("LLAVaultBase", function () {
       [
         owner.address,
         pauser.address,
-        minter.address,
         tokenManager.address,
         upgrader.address,
+        tokenWithdraw.address,
         LLAProxyAddress,
         multiSig.address,
       ],
@@ -116,14 +118,18 @@ describe("LLAVaultBase", function () {
         .true;
       expect(await auth.hasRole(await auth.PAUSER_ROLE(), pauser.address)).to.be
         .true;
-      expect(await auth.hasRole(await auth.MINTER_ROLE(), minter.address)).to.be
-        .true;
       expect(await auth.hasRole(await auth.UPGRADER_ROLE(), upgrader.address))
         .to.be.true;
       expect(
         await auth.hasRole(
           await auth.TOKEN_MANAGER_ROLE(),
           tokenManager.address
+        )
+      ).to.be.true;
+      expect(
+        await auth.hasRole(
+          await auth.TOKEN_WITHDRAW_ROLE(),
+          tokenWithdraw.address
         )
       ).to.be.true;
     });
@@ -166,9 +172,9 @@ describe("LLAVaultBase", function () {
           [
             ethers.ZeroAddress,
             pauser.address,
-            minter.address,
             tokenManager.address,
             upgrader.address,
+            tokenWithdraw.address,
             LLAProxyAddress,
             multiSig.address,
           ],
@@ -187,9 +193,9 @@ describe("LLAVaultBase", function () {
           [
             owner.address,
             ethers.ZeroAddress,
-            minter.address,
             tokenManager.address,
             upgrader.address,
+            tokenWithdraw.address,
             LLAProxyAddress,
             multiSig.address,
           ],
@@ -573,7 +579,6 @@ describe("LLAVaultBase", function () {
       expect(lastPayment.amount).to.equal(depositAmount);
     });
 
-
     it("should correctly calculate and allocate deposit amounts to multisig address and vault contract, and mint corresponding tokens to user address", async function () {
       await mockToken2
         .connect(minter)
@@ -933,7 +938,6 @@ describe("LLAVaultBase", function () {
       const tokenAddress = await mockToken.getAddress();
       await mockToken.connect(minter).mint(addr1.address, authAmount);
       const balance = await mockToken.balanceOf(addr1.address);
-      console.log("balance", ethers.formatEther(balance));
       // Approve the vault contract to spend tokens
       await mockToken.connect(addr1).approve(VaultProxyAddress, authAmount);
 
@@ -1001,7 +1005,7 @@ describe("LLAVaultBase", function () {
       }
     });
 
-    it("should allow admin to withdraw tokens", async function () {
+    it("should allow tokenWithdraw to withdraw tokens", async function () {
       const tokenAddress = await mockToken.getAddress();
       const withdrawAmount = ethers.parseEther("100");
 
@@ -1013,7 +1017,7 @@ describe("LLAVaultBase", function () {
       // Execute the withdrawal operation.
       await expect(
         llaVault
-          .connect(owner)
+          .connect(tokenWithdraw)
           .withdraw(tokenAddress, addr1.address, withdrawAmount)
       )
         .to.emit(llaVault, "Withdrawal")
@@ -1029,7 +1033,7 @@ describe("LLAVaultBase", function () {
       );
     });
 
-    it("should revert if non-admin tries to withdraw", async function () {
+    it("should revert if non-tokenWithdraw tries to withdraw", async function () {
       const tokenAddress = await mockToken.getAddress();
       const withdrawAmount = ethers.parseEther("100");
 
@@ -1042,7 +1046,7 @@ describe("LLAVaultBase", function () {
           llaVault,
           "AccessControlUnauthorizedAccount"
         )
-        .withArgs(addr1.address, await llaVault.ADMIN_ROLE());
+        .withArgs(addr1.address, await llaVault.TOKEN_WITHDRAW_ROLE());
     });
 
     it("should revert if withdrawing more than the vault balance", async function () {
@@ -1053,7 +1057,9 @@ describe("LLAVaultBase", function () {
       const newAmount = balance + withdrawAmount;
 
       await expect(
-        llaVault.connect(owner).withdraw(tokenAddress, addr1.address, newAmount)
+        llaVault
+          .connect(tokenWithdraw)
+          .withdraw(tokenAddress, addr1.address, newAmount)
       )
         .to.be.revertedWithCustomError(llaVault, "InsufficientBalance")
         .withArgs(newAmount, await mockToken.balanceOf(VaultProxyAddress));
@@ -1065,7 +1071,7 @@ describe("LLAVaultBase", function () {
 
       await expect(
         llaVault
-          .connect(owner)
+          .connect(tokenWithdraw)
           .withdraw(tokenAddress, ethers.ZeroAddress, withdrawAmount)
       )
         .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
@@ -1076,7 +1082,7 @@ describe("LLAVaultBase", function () {
       const tokenAddress = await mockToken.getAddress();
 
       await expect(
-        llaVault.connect(owner).withdraw(tokenAddress, addr1.address, 0)
+        llaVault.connect(tokenWithdraw).withdraw(tokenAddress, addr1.address, 0)
       )
         .to.be.revertedWithCustomError(llaVault, "InvalidAmount")
         .withArgs(0);
@@ -1092,7 +1098,7 @@ describe("LLAVaultBase", function () {
       // Execute the withdrawal operation.
       await expect(
         llaVault
-          .connect(owner)
+          .connect(tokenWithdraw)
           .withdraw(tokenAddress, addr1.address, withdrawAmount)
       ).to.revertedWithCustomError(llaVault, "EnforcedPause");
 
@@ -1111,12 +1117,12 @@ describe("LLAVaultBase", function () {
 
       // Execute the first withdrawal.
       await llaVault
-        .connect(owner)
+        .connect(tokenWithdraw)
         .withdraw(tokenAddress, addr1.address, withdrawAmount1);
 
       // Execute the second withdrawal.
       await llaVault
-        .connect(owner)
+        .connect(tokenWithdraw)
         .withdraw(tokenAddress, addr2.address, withdrawAmount2);
 
       // Check the vault balance.
@@ -1135,8 +1141,6 @@ describe("LLAVaultBase", function () {
         initRecipient2Balance + withdrawAmount2
       );
     });
-
-
   });
 
   describe("Test updating the LLA token address.", function () {

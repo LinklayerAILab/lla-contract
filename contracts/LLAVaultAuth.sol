@@ -10,28 +10,28 @@ contract LLAVaultAuth is AccessControlUpgradeable,UUPSUpgradeable {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
     // PAUSER_ROLE
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    // MINTER_ROLE
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     // UPGRADER_ROLE
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
     // TOKEN_MANAGER_ROLE
     bytes32 public constant TOKEN_MANAGER_ROLE = keccak256("TOKEN_MANAGER_ROLE");
+    // TOKEN_WITHDRAW_ROLE
+    bytes32 public constant TOKEN_WITHDRAW_ROLE = keccak256("TOKEN_WITHDRAW_ROLE");
     error InvalidImplementationAddress(address newImplementation);
 
     // Initialization function
     function initializeAuth(
         address defaultAdmin,
         address pauser,
-        address minter,
         address tokenManager,
-        address upgrader
+        address upgrader,
+        address tokenWithdraw
     ) public initializer {
         __AccessControl_init();
         _grantRole(ADMIN_ROLE, defaultAdmin);
         _grantRole(PAUSER_ROLE, pauser);
-        _grantRole(MINTER_ROLE, minter);
         _grantRole(UPGRADER_ROLE, upgrader);
         _grantRole(TOKEN_MANAGER_ROLE, tokenManager);
+        _grantRole(TOKEN_WITHDRAW_ROLE, tokenWithdraw);
     }
     /**
      *  @notice dynamically add roles through multi-signature contract addresses
