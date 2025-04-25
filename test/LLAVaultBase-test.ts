@@ -4,7 +4,6 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers, upgrades } from "hardhat";
 import { ContractFactory } from "ethers";
 import { anyValue } from "@nomicfoundation/hardhat-chai-matchers/withArgs";
-import { bigint } from "hardhat/internal/core/params/argumentTypes";
 describe("LLAVaultBase", function () {
   const fundingRate = BigInt(30); // 30%
   let LLAXTokenFactory: ContractFactory;
@@ -574,24 +573,7 @@ describe("LLAVaultBase", function () {
       expect(lastPayment.amount).to.equal(depositAmount);
     });
 
-    it("Reentrancy attacks should be prevented.", async function () {
-      // This test requires deploying a malicious contract to test reentrancy protection.
-      // This is a conceptual test to verify the existence of the reentrancy flag.
 
-      const depositAmount = ethers.parseEther("100");
-      const tokenAddress = await mockToken.getAddress();
-
-      // Approve the vault contract to spend tokens.
-      await mockToken.connect(addr1).approve(VaultProxyAddress, depositAmount);
-
-      // Deposit tokens.
-
-      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
-      // TODO Verify
-      // Verify that the reentrancy protection is effective.
-      // Note: This is just a conceptual test. In practice, a more complex setup is required.
-    });
-    // TODO Verify the cases
     it("should correctly calculate and allocate deposit amounts to multisig address and vault contract, and mint corresponding tokens to user address", async function () {
       await mockToken2
         .connect(minter)
@@ -996,6 +978,165 @@ describe("LLAVaultBase", function () {
       const mintBalanceTier2 = await mockToken.balanceOf(addr1.address);
       expect(mintBalanceTier2).to.equal(expectedMintAmountTier2 + newB);
     });
+  });
+
+  describe("Withdraw Functionality Tests", function () {
+    beforeEach(async function () {
+      // Ensure the token has been added to the supported list.
+      const tokenAddress = await mockToken.getAddress();
+      try {
+        await llaVault.connect(tokenManager).addSupportedToken(tokenAddress);
+      } catch (error) {
+        // If the token is already in the supported list, ignore the error.
+      }
+
+      // Mint some tokens for the vault contract.
+      await mockToken
+        .connect(minter)
+        .mint(VaultProxyAddress, ethers.parseEther("1000"));
+
+      // Ensure the contract is not suspended.
+      if (await llaVault.paused()) {
+        await llaVault.connect(pauser).unpause();
+      }
+    });
+
+    it("should allow admin to withdraw tokens", async function () {
+      const tokenAddress = await mockToken.getAddress();
+      const withdrawAmount = ethers.parseEther("100");
+
+      // Check the initial balance of the vault.
+      const initialVaultBalance = await mockToken.balanceOf(VaultProxyAddress);
+      expect(initialVaultBalance).to.be.gte(withdrawAmount);
+      // Check the recipient's initial balance.
+      const initialRecipientBalance = await mockToken.balanceOf(addr1.address);
+      // Execute the withdrawal operation.
+      await expect(
+        llaVault
+          .connect(owner)
+          .withdraw(tokenAddress, addr1.address, withdrawAmount)
+      )
+        .to.emit(llaVault, "Withdrawal")
+        .withArgs(addr1.address, anyValue, withdrawAmount, tokenAddress);
+      // Check the vault balance.
+      const finalVaultBalance = await mockToken.balanceOf(VaultProxyAddress);
+      expect(finalVaultBalance).to.equal(initialVaultBalance - withdrawAmount);
+
+      // Check the recipient's balance.
+      const finalRecipientBalance = await mockToken.balanceOf(addr1.address);
+      expect(finalRecipientBalance).to.equal(
+        initialRecipientBalance + withdrawAmount
+      );
+    });
+
+    it("should revert if non-admin tries to withdraw", async function () {
+      const tokenAddress = await mockToken.getAddress();
+      const withdrawAmount = ethers.parseEther("100");
+
+      await expect(
+        llaVault
+          .connect(addr1)
+          .withdraw(tokenAddress, addr2.address, withdrawAmount)
+      )
+        .to.be.revertedWithCustomError(
+          llaVault,
+          "AccessControlUnauthorizedAccount"
+        )
+        .withArgs(addr1.address, await llaVault.ADMIN_ROLE());
+    });
+
+    it("should revert if withdrawing more than the vault balance", async function () {
+      const tokenAddress = await mockToken.getAddress();
+      const balance = await mockToken.balanceOf(VaultProxyAddress);
+
+      const withdrawAmount = ethers.parseEther("2000"); // Exceed the vault balance.
+      const newAmount = balance + withdrawAmount;
+
+      await expect(
+        llaVault.connect(owner).withdraw(tokenAddress, addr1.address, newAmount)
+      )
+        .to.be.revertedWithCustomError(llaVault, "InsufficientBalance")
+        .withArgs(newAmount, await mockToken.balanceOf(VaultProxyAddress));
+    });
+
+    it("should revert if withdrawing to the zero address", async function () {
+      const tokenAddress = await mockToken.getAddress();
+      const withdrawAmount = ethers.parseEther("100");
+
+      await expect(
+        llaVault
+          .connect(owner)
+          .withdraw(tokenAddress, ethers.ZeroAddress, withdrawAmount)
+      )
+        .to.be.revertedWithCustomError(llaVault, "InvalidAddress")
+        .withArgs(ethers.ZeroAddress);
+    });
+
+    it("should revert if withdrawing zero amount", async function () {
+      const tokenAddress = await mockToken.getAddress();
+
+      await expect(
+        llaVault.connect(owner).withdraw(tokenAddress, addr1.address, 0)
+      )
+        .to.be.revertedWithCustomError(llaVault, "InvalidAmount")
+        .withArgs(0);
+    });
+
+    it("should allow withdrawing when the contract is paused", async function () {
+      const tokenAddress = await mockToken.getAddress();
+      const withdrawAmount = ethers.parseEther("100");
+
+      // Suspend the contract.
+      await llaVault.connect(pauser).pause();
+
+      // Execute the withdrawal operation.
+      await expect(
+        llaVault
+          .connect(owner)
+          .withdraw(tokenAddress, addr1.address, withdrawAmount)
+      ).to.revertedWithCustomError(llaVault, "EnforcedPause");
+
+      // Restore the contract status.
+      await llaVault.connect(pauser).unpause();
+    });
+
+    it("should handle multiple withdrawals correctly", async function () {
+      const tokenAddress = await mockToken.getAddress();
+      const withdrawAmount1 = ethers.parseEther("50");
+      const withdrawAmount2 = ethers.parseEther("75");
+      const initRecipient1Balance = await mockToken.balanceOf(addr1.address);
+      const initRecipient2Balance = await mockToken.balanceOf(addr2.address);
+      // Check the initial balance of the vault.
+      const initialVaultBalance = await mockToken.balanceOf(VaultProxyAddress);
+
+      // Execute the first withdrawal.
+      await llaVault
+        .connect(owner)
+        .withdraw(tokenAddress, addr1.address, withdrawAmount1);
+
+      // Execute the second withdrawal.
+      await llaVault
+        .connect(owner)
+        .withdraw(tokenAddress, addr2.address, withdrawAmount2);
+
+      // Check the vault balance.
+      const finalVaultBalance = await mockToken.balanceOf(VaultProxyAddress);
+      expect(finalVaultBalance).to.equal(
+        initialVaultBalance - withdrawAmount1 - withdrawAmount2
+      );
+
+      // Check the recipient's balance.
+      const recipient1Balance = await mockToken.balanceOf(addr1.address);
+      const recipient2Balance = await mockToken.balanceOf(addr2.address);
+      expect(recipient1Balance).to.equal(
+        withdrawAmount1 + initRecipient1Balance
+      );
+      expect(recipient2Balance).to.equal(
+        initRecipient2Balance + withdrawAmount2
+      );
+    });
+
+
   });
 
   describe("Test updating the LLA token address.", function () {

@@ -30,7 +30,7 @@ contract LLAVaultAuth is AccessControlUpgradeable,UUPSUpgradeable {
         _grantRole(ADMIN_ROLE, defaultAdmin);
         _grantRole(PAUSER_ROLE, pauser);
         _grantRole(MINTER_ROLE, minter);
-         _grantRole(UPGRADER_ROLE, upgrader);
+        _grantRole(UPGRADER_ROLE, upgrader);
         _grantRole(TOKEN_MANAGER_ROLE, tokenManager);
     }
     /**
