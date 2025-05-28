@@ -328,16 +328,7 @@ contract LLAVaultBase is
             })
         );
 
-        IERC20 myToken = IERC20(_token);
-        uint256 sendAmountToMultisig = (_amount * FUNDING_RATE) / 100;
-        uint256 sendAmountToSelf = _amount - sendAmountToMultisig;
-
-        // External interactions
-        myToken.safeTransferFrom(msg.sender, multiSig, sendAmountToMultisig);
-        myToken.safeTransferFrom(msg.sender, address(this), sendAmountToSelf);
-        emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
-
-        // Calculate MINTING_RATE based on totalMintCount
+       // Calculate MINTING_RATE based on totalMintCount
         uint256 mintingRate = getMintingRate();
 
         // Mint LLA tokens to the user
@@ -349,6 +340,16 @@ contract LLAVaultBase is
             _minting[msg.sender] = false;
             revert MintingFailed();
         }
+        IERC20 myToken = IERC20(_token);
+        uint256 sendAmountToMultisig = (_amount * FUNDING_RATE) / 100;
+        uint256 sendAmountToSelf = _amount - sendAmountToMultisig;
+
+        // External interactions
+        myToken.safeTransferFrom(msg.sender, multiSig, sendAmountToMultisig);
+        myToken.safeTransferFrom(msg.sender, address(this), sendAmountToSelf);
+        emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
+
+ 
 
         // Reset the minting state
         _minting[msg.sender] = false;
