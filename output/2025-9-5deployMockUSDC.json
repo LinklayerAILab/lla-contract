@@ -1,0 +1,12 @@
+{
+  "contract": "MockUSDC",
+  "network": "erbie",
+  "adminAddress": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+  "contractAddress": "0x4EC62D4a260205FFBd181aFEc6065849a21821C2",
+  "name": "MockUSDC",
+  "symbol": "MockUSDC",
+  "decimals": "6",
+  "totalSupply": "0",
+  "version": "v1.0",
+  "time": "2025/9/5 12:49:16"
+}

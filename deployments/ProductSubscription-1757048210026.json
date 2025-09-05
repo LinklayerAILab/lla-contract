@@ -1,0 +1,16 @@
+{
+  "network": "Sepolia",
+  "chainId": 11155111,
+  "contractAddress": "0x2084c767998Fa4bf13b2447B2b8A632D8f1F142C",
+  "implementationAddress": "0x4A3C688A02C246226bCA52BF426cEC4DDe1C5280",
+  "deployer": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+  "deployTime": "2025-09-05T04:56:50.026Z",
+  "version": "v1.0",
+  "roles": {
+    "defaultAdmin": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+    "pauser": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+    "tokenManager": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+    "upgrader": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+    "multiSig": "0xaAa5dB891248E15a76232aB8F65047C4E7e93fa1"
+  }
+}

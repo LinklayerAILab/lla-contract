@@ -17,25 +17,7 @@ import {IERC4626} from "@openzeppelin/contracts/interfaces/IERC4626.sol";
 import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-/**
- * @notice Structure for storing payment information
- * @dev Used to track all payment transactions in the vault
- */
-struct Payment {
-    address payer;
-    uint256 timestamp;
-    uint256 amount;
-    address token;
-}
-
-/**
- * @notice Structure for storing payment page information
- * @dev Used to track payment records in a paginated manner
- */
-struct PaymentPage {
-    Payment[] data;
-    uint256 total;
-}
+import {Math} from "@openzeppelin/contracts/utils/math/Math.sol";
 
 /**
  * @notice Structure to store minting rate and count for each threshold
@@ -53,6 +35,7 @@ contract LLAVaultBase is
     LLAVaultAuth
 {
     using SafeERC20 for IERC20;
+    using Math for uint256;
     // State Variables
     /// @notice The multi-signature wallet address used for administrative operations
     /// @dev This address has special permissions for withdrawals and critical operations
@@ -66,25 +49,19 @@ contract LLAVaultBase is
     /// @dev Used for tracking contract versions during upgrades
     string public constant version = "v1.0";
 
-    /// @notice Mapping of user addresses to their payment history
-    /// @dev Each address can have multiple payment records
-    mapping(address => Payment[]) public payments;
-
     /// @notice Mapping of token addresses to their symbols
     /// @dev Used to track which tokens are supported by the vault
-    mapping(address _token => string _symbol) public supportCoins;
+    mapping(address => bool) public supportCoins;
     /// @notice Record the minting status of the address
     mapping(address => bool) private _minting;
 
     /// @notice Deposit Funds Allocation Ratio to Multisignature Addresses
-    uint256 public constant FUNDING_RATE = 30; // 30%
-    /// @notice Minting Rate of LLAX Token
-    uint256 public constant MINTING_RATE = 60; // 60%
+    uint256 public FUNDING_RATE; // 30%
 
-    /// @notice Total number of minting transactions (deprecated, kept for storage compatibility)
+    /// @notice Total number of minting transactions
     uint256 public totalMintCount;
 
-    /// @notice Mapping to store minting rate thresholds (deprecated, kept for storage compatibility)
+    /// @notice Mapping to store minting rate thresholds
     mapping(uint256 => MintingRateInfo) public mintingRateThresholds;
 
     // Events
@@ -220,7 +197,7 @@ contract LLAVaultBase is
             _upgrader,
             _tokenWithdraw
         );
-
+        FUNDING_RATE = 30;
         token = _token;
         multiSig = _multiSig;
         emit TokenUpdated(_token);
@@ -246,6 +223,12 @@ contract LLAVaultBase is
             mintRate: 10,
             mintCount: type(uint256).max
         }); // 5th tier: 10%, >1000000
+    }
+
+    function updateFundingRate(
+        uint256 _FUNDING_RATE
+    ) external onlyRole(UPGRADER_ROLE) {
+        FUNDING_RATE = _FUNDING_RATE;
     }
 
     /**
@@ -311,45 +294,34 @@ contract LLAVaultBase is
         address _token,
         uint256 _amount
     ) public payable whenNotPaused nonReentrant {
-        if (isEmpty(supportCoins[_token])) revert UnsupportedToken(_token);
+        if (!supportCoins[_token]) revert UnsupportedToken(_token);
         if (token == address(0)) revert InvalidAddress(address(0));
         if (multiSig == address(0)) revert InvalidAddress(address(0));
         if (_amount <= 0) revert InvalidAmount(_amount);
         if (_minting[msg.sender]) revert MintingInProgress();
         _minting[msg.sender] = true;
-
-        // Effects before interactions
-        payments[msg.sender].push(
-            Payment({
-                payer: msg.sender,
-                timestamp: block.timestamp,
-                amount: _amount,
-                token: _token
-            })
-        );
-
-       // Calculate MINTING_RATE based on totalMintCount
+        // Calculate MINTING_RATE based on totalMintCount
         uint256 mintingRate = getMintingRate();
 
         // Mint LLA tokens to the user
-        uint256 mintAmount = (_amount * mintingRate + 50) / 100;
-        try IERC20Mintable(token).mint(msg.sender, mintAmount) {
-            emit MintToAddress(msg.sender, mintAmount);
-            totalMintCount++; // Increment total mint count
-        } catch {
-            _minting[msg.sender] = false;
-            revert MintingFailed();
+        uint256 mintAmount = _amount.mulDiv(mintingRate, 100);
+        if (mintAmount > 0) {
+            try IERC20Mintable(token).mint(msg.sender, mintAmount) {
+                emit MintToAddress(msg.sender, mintAmount);
+                totalMintCount++; // Increment total mint count
+            } catch {
+                _minting[msg.sender] = false;
+                revert MintingFailed();
+            }
         }
         IERC20 myToken = IERC20(_token);
-        uint256 sendAmountToMultisig = (_amount * FUNDING_RATE) / 100;
+        uint256 sendAmountToMultisig = _amount.mulDiv(FUNDING_RATE, 100);
         uint256 sendAmountToSelf = _amount - sendAmountToMultisig;
 
         // External interactions
         myToken.safeTransferFrom(msg.sender, multiSig, sendAmountToMultisig);
         myToken.safeTransferFrom(msg.sender, address(this), sendAmountToSelf);
         emit PaymentDeposited(msg.sender, block.timestamp, _amount, _token);
-
- 
 
         // Reset the minting state
         _minting[msg.sender] = false;
@@ -375,13 +347,14 @@ contract LLAVaultBase is
     function addSupportedToken(
         address _token
     ) public onlyRole(TOKEN_MANAGER_ROLE) whenNotPaused {
-        if (!isEmpty(supportCoins[_token]))
-            revert AlreadyInTheSupportedIcon(_token);
+        if (supportCoins[_token]) revert AlreadyInTheSupportedIcon(_token);
         if (_token == address(0)) revert InvalidAddress(_token);
 
+        supportCoins[_token] = true;
+
+        // 获取 symbol 仅用于事件，不存储
         ERC20 myToken = ERC20(_token);
         string memory _symbol = myToken.symbol();
-        supportCoins[_token] = _symbol;
         emit TokenAdded(_token, _symbol);
     }
 
@@ -392,84 +365,11 @@ contract LLAVaultBase is
     function removeSupportedToken(
         address _token
     ) public onlyRole(TOKEN_MANAGER_ROLE) whenNotPaused {
-        string memory _symbol = supportCoins[_token];
-        if (isEmpty(_symbol)) revert UnsupportedToken(_token);
-
-        supportCoins[_token] = "";
+        if (!supportCoins[_token]) revert UnsupportedToken(_token);
+        ERC20 myToken = ERC20(_token);
+        string memory _symbol = myToken.symbol();
+        delete supportCoins[_token];
         emit TokenRemoved(_token, _symbol);
-    }
-
-    /**
-     * @notice Checks if a string is empty
-     * @param str String to check
-     * @return bool True if string is empty
-     */
-    function isEmpty(string memory str) public pure returns (bool) {
-        return bytes(str).length == 0;
-    }
-
-    /**
-     * @notice Obtain the total number of user payment records.
-     * @param _user The user address
-     */
-    function getPaymentCount(address _user) public view returns (uint256) {
-        return payments[_user].length;
-    }
-
-    /**
-     * @notice Obtain the payment record of a user by index.
-     * @param _page The page number
-     * @param _size The number of records per page
-     * @param _user The user address
-     */
-    function getPaymentsByPage(
-        uint256 _page,
-        uint256 _size,
-        address _user
-    ) public view returns (PaymentPage memory) {
-        uint256 total = payments[_user].length;
-
-        // If the page number is 0, automatically adjust it to page 1.
-        if (_page == 0) {
-            _page = 1;
-        }
-
-        // Calculate the starting index.
-        uint256 startIndex = (_page - 1) * _size;
-
-        // If the starting index is out of range, return an empty array.
-        if (startIndex >= total) {
-            Payment[] memory emptyData = new Payment[](0);
-            return PaymentPage({data: emptyData, total: total});
-        }
-
-        // Calculate the actual number of records to be returned (which may be less than `_size`).
-        uint256 actualSize = _size;
-        if (startIndex + actualSize > total) {
-            actualSize = total - startIndex;
-        }
-
-        // Create the result array.
-
-        Payment[] memory result = new Payment[](actualSize);
-
-        // Populate the result array.
-        for (uint256 i = 0; i < actualSize; i++) {
-            result[i] = payments[_user][startIndex + i];
-        }
-
-        return PaymentPage({data: result, total: total});
-    }
-
-    /**
-     * @notice Sets the total mint count (for testing purposes only)
-     * @dev This function is intended for testing and debugging purposes only.
-     *      It should not be used in production environments.
-     *      Ensure this function is disabled or removed in production deployments.
-     * @param count The new total mint count
-     */
-    function setTotalMintCount(uint256 count) external onlyRole(ADMIN_ROLE) {
-        totalMintCount = count;
     }
 
     /**
@@ -499,6 +399,26 @@ contract LLAVaultBase is
         myToken.safeTransfer(_to, _amount);
 
         emit Withdrawal(_to, block.timestamp, _amount, _token);
+    }
+
+    /**
+     * @notice Checks if a string is empty
+     * @param str String to check
+     * @return bool True if string is empty
+     */
+    function isEmpty(string memory str) public pure returns (bool) {
+        return bytes(str).length == 0;
+    }
+
+    /**
+     * @notice Sets the total mint count (for testing purposes only)
+     * @dev This function is intended for testing and debugging purposes only.
+     *      It should not be used in production environments.
+     *      Ensure this function is disabled or removed in production deployments.
+     * @param count The new total mint count
+     */
+    function setTotalMintCount(uint256 count) external onlyRole(ADMIN_ROLE) {
+        totalMintCount = count;
     }
 }
 
