@@ -74,6 +74,22 @@ const config: HardhatUserConfig = {
       ],
       chainId: 97,
     },
+    erbie: {
+      url: "http://192.168.1.235:8560",
+      accounts: [
+        OWNER_ADDR,
+        PAUSER_ADDR,
+        MINTER_ADDR,
+        UPGRADER_ADDR,
+        TOKENMANAGER_ADDR,
+        MULTISIG_ADDR,
+        TESTADDR_1,
+        TESTADDR_2,
+      ],
+      chainId: 11155111,
+      gasPrice: "auto", // 自动获取gas价格
+      timeout: 120000, // 2分钟超时
+    },
   },
   ignition: {}, // Remove 'moduleDirectory' as it is no longer supported
 };

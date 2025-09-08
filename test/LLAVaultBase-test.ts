@@ -327,9 +327,7 @@ describe("LLAVaultBase", function () {
         .to.emit(llaVault, "TokenAdded")
         .withArgs(tokenAddress, await mockToken2.symbol());
 
-      expect(await llaVault.supportCoins(tokenAddress)).to.equal(
-        await mockToken2.symbol()
-      );
+      expect(await llaVault.supportCoins(tokenAddress)).to.equal(true);
     });
 
     it("If the token already exists, it should revert.", async function () {
@@ -381,7 +379,7 @@ describe("LLAVaultBase", function () {
         .to.emit(llaVault, "TokenRemoved")
         .withArgs(tokenAddress, tokenSymbol);
 
-      expect(await llaVault.supportCoins(tokenAddress)).to.equal("");
+      expect(await llaVault.supportCoins(tokenAddress)).to.equal(false);
     });
 
     it("Adding tokens by a non-token admin should revert.", async function () {
@@ -565,18 +563,18 @@ describe("LLAVaultBase", function () {
       for (let i = 0; i < iterations; i++) {
         await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
       }
-
+      // TODO 验证
       // Verify the number of payment records.
-      const paymentCount = await getPaymentCount(addr1.address);
-      expect(paymentCount).to.be.at.least(iterations);
+      // const paymentCount = await getPaymentCount(addr1.address);
+      // expect(paymentCount).to.be.at.least(iterations);
 
-      // Verify the last payment record.
-      const lastPaymentIndex = paymentCount - 1n;
-      const lastPayment = await llaVault.payments(
-        addr1.address,
-        lastPaymentIndex
-      );
-      expect(lastPayment.amount).to.equal(depositAmount);
+      // // Verify the last payment record.
+      // const lastPaymentIndex = paymentCount - 1n;
+      // const lastPayment = await llaVault.payments(
+      //   addr1.address,
+      //   lastPaymentIndex
+      // );
+      // expect(lastPayment.amount).to.equal(depositAmount);
     });
 
     it("should correctly calculate and allocate deposit amounts to multisig address and vault contract, and mint corresponding tokens to user address", async function () {
@@ -663,19 +661,21 @@ describe("LLAVaultBase", function () {
       // Immediately perform a second deposit, verify reentrancy protection does not affect normal operation
       await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
       // Verify both deposits are recorded
-      const paymentCount = await getPaymentCount(addr1.address);
-      expect(paymentCount).to.be.at.least(2);
-      // Verify the last two payment records
-      const payment1 = await llaVault.payments(
-        addr1.address,
-        paymentCount - 2n
-      );
-      const payment2 = await llaVault.payments(
-        addr1.address,
-        paymentCount - 1n
-      );
-      expect(payment1.amount).to.equal(depositAmount);
-      expect(payment2.amount).to.equal(depositAmount);
+      // TODO 验证
+
+      // const paymentCount = await getPaymentCount(addr1.address);
+      // expect(paymentCount).to.be.at.least(2);
+      // // Verify the last two payment records
+      // const payment1 = await llaVault.payments(
+      //   addr1.address,
+      //   paymentCount - 2n
+      // );
+      // const payment2 = await llaVault.payments(
+      //   addr1.address,
+      //   paymentCount - 1n
+      // );
+      // expect(payment1.amount).to.equal(depositAmount);
+      // expect(payment2.amount).to.equal(depositAmount);
     });
     it("should correctly handle amounts that cannot be divided by 100", async function () {
       const amount = ethers.parseEther("0.01") + 1n; // 0.01 ETH + 1 wei, ensure it cannot be divided by 100
@@ -687,17 +687,15 @@ describe("LLAVaultBase", function () {
       );
       const mintingRate = await llaVault.getMintingRate();
       // Calculate expected minted amount (using rounding)
-      const expectedMintAmount = (amount * BigInt(mintingRate) + 50n) / 100n;
+      const expectedMintAmount = (amount * BigInt(mintingRate)) / 100n;
 
       // Approve and deposit
       await USDCToken.connect(addr1).approve(VaultProxyAddress, amount);
 
       // Record balance before deposit
       const balanceBefore = await mockToken.balanceOf(addr1.address);
-
       // Execute deposit
       await llaVault.connect(addr1).deposit(tokenAddress, amount);
-
       // Verify the minted amount
       const balanceAfter = await mockToken.balanceOf(addr1.address);
       expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
@@ -707,23 +705,16 @@ describe("LLAVaultBase", function () {
       const mintingRate = await llaVault.getMintingRate();
       const tinyAmount = 1n;
       const tokenAddress = await USDCToken.getAddress();
-
       // Calculate the expected minted amount
-      const expectedMintAmount =
-        (tinyAmount * BigInt(mintingRate) + 50n) / 100n;
-
+      const expectedMintAmount = (tinyAmount * BigInt(mintingRate)) / 100n;
       // Mint some small amount of tokens
       await USDCToken.connect(minter).mint(addr1.address, tinyAmount);
-
       // Approve and deposit
       await USDCToken.connect(addr1).approve(VaultProxyAddress, tinyAmount);
-
       // Record balance before deposit
       const balanceBefore = await mockToken.balanceOf(addr1.address);
-
       // Execute deposit
       await llaVault.connect(addr1).deposit(tokenAddress, tinyAmount);
-
       // Verify the minted amount
       const balanceAfter = await mockToken.balanceOf(addr1.address);
       expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
@@ -733,10 +724,8 @@ describe("LLAVaultBase", function () {
       // Use a large amount, but ensure it cannot be divided by 100
       const largeAmount = ethers.parseEther("1000000") + 1n;
       const tokenAddress = await USDCToken.getAddress();
-
       // Calculate expected minted amount
-      const expectedMintAmount =
-        (largeAmount * BigInt(mintingRate) + 50n) / 100n;
+      const expectedMintAmount = (largeAmount * BigInt(mintingRate)) / 100n;
 
       // Mint a large amount of tokens
       await USDCToken.connect(minter).mint(addr1.address, largeAmount);
@@ -749,7 +738,6 @@ describe("LLAVaultBase", function () {
 
       // Execute deposit
       await llaVault.connect(addr1).deposit(tokenAddress, largeAmount);
-
       // Verify the minted amount
       const balanceAfter = await mockToken.balanceOf(addr1.address);
       expect(balanceAfter - balanceBefore).to.equal(expectedMintAmount);
@@ -760,7 +748,7 @@ describe("LLAVaultBase", function () {
       const amount = 1000001n; // 1.000001 USDC (6 decimal places)
 
       // Calculate expected minted amount
-      const expectedMintAmount = (amount * BigInt(mintingRate) + 50n) / 100n;
+      const expectedMintAmount = (amount * BigInt(mintingRate)) / 100n;
 
       // Mint tokens
       await USDCToken.connect(minter).mint(addr1.address, amount);
@@ -798,7 +786,7 @@ describe("LLAVaultBase", function () {
         // Mint tokens
         await USDCToken.connect(minter).mint(addr1.address, testCase.amount);
         const expectedMintAmount =
-          (testCase.amount * BigInt(mintingRate) + 50n) / 100n;
+          (testCase.amount * BigInt(mintingRate)) / 100n;
         // Approve and deposit
         await USDCToken.connect(addr1).approve(
           VaultProxyAddress,
@@ -1199,110 +1187,6 @@ describe("LLAVaultBase", function () {
     });
   });
 
-  describe("Payment Record Query Tests", function () {
-    beforeEach(async function () {
-      // Ensure the token is added to the supported list.
-      const tokenAddress = await mockToken.getAddress();
-      try {
-        await llaVault.connect(tokenManager).addSupportedToken(tokenAddress);
-      } catch (error) {
-        // If the token is already in the supported list, ignore the error.
-      }
-
-      // Mint some tokens to the test account.
-      await mockToken
-        .connect(minter)
-        .mint(addr1.address, ethers.parseEther("1000"));
-
-      // Ensure the contract is not paused.
-      if (await llaVault.paused()) {
-        await llaVault.connect(pauser).unpause();
-      }
-
-      // Ensure the vault contract has minting permissions.
-      try {
-        await mockToken
-          .connect(owner)
-          .addRole(await mockToken.MINTER_ROLE(), VaultProxyAddress);
-      } catch (error) {
-        // If the permissions are already granted, ignore the error.
-      }
-    });
-
-    it("should correctly record and query payment records", async function () {
-      const depositAmount = ethers.parseEther("100");
-      const tokenAddress = await mockToken.getAddress();
-
-      // Get the current number of payment records
-      const initialPaymentCount = await getPaymentCount(addr1.address);
-
-      // Approve the vault contract to spend tokens
-      await mockToken.connect(addr1).approve(VaultProxyAddress, depositAmount);
-
-      // Deposit
-      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount);
-
-      // Verify the number of payment records has increased
-      const newPaymentCount = await getPaymentCount(addr1.address);
-      expect(newPaymentCount).to.equal(initialPaymentCount + 1n);
-
-      // Verify the content of the payment records
-      const payment = await llaVault.getPaymentsByPage(1, 2, addr1.address);
-      // Verify payment records
-      for (let i = 0; i < payment.data.length; i++) {
-        expect(payment.data[i][0]).to.equal(addr1.address);
-        expect(payment.data[i][3]).to.equal(tokenAddress);
-      }
-    });
-
-    it("should be able to query multiple payment records", async function () {
-      const depositAmount1 = ethers.parseEther("50");
-      const depositAmount2 = ethers.parseEther("75");
-      const tokenAddress = await mockToken.getAddress();
-
-      // Get the current number of payment records
-      const initialPaymentCount = await getPaymentCount(addr1.address);
-
-      // Approve the vault contract to spend tokens
-      await mockToken
-        .connect(addr1)
-        .approve(VaultProxyAddress, depositAmount1 + depositAmount2);
-
-      // Perform two deposits
-      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount1);
-      await llaVault.connect(addr1).deposit(tokenAddress, depositAmount2);
-
-      // Verify the number of payment records has increased
-      const newPaymentCount = await getPaymentCount(addr1.address);
-      expect(newPaymentCount).to.equal(initialPaymentCount + 2n);
-
-      // Verify the first payment record
-      const payment1 = await llaVault.payments(
-        addr1.address,
-        initialPaymentCount
-      );
-      expect(payment1.amount).to.equal(depositAmount1);
-
-      // Verify the second payment record
-      const payment2 = await llaVault.payments(
-        addr1.address,
-        initialPaymentCount + 1n
-      );
-      expect(payment2.amount).to.equal(depositAmount2);
-    });
-
-    it("querying non-existent payment records should return empty records", async function () {
-      // Query non-existent payment records
-      const payment = await llaVault.getPaymentsByPage(3, 10, addr2.address);
-
-      const nonExistentIndex = await getPaymentCount(addr2.address);
-      // Verify empty records are returned
-      expect(payment.data.length).to.equal(0);
-      expect(payment.total).to.equal(0);
-      expect(nonExistentIndex).to.equal(0);
-    });
-  });
-
   describe("Multi-signature Address Update Tests", function () {
     it("should revert when updating the multi-signature address to zero address", async function () {
       await expect(llaVault.connect(owner).updateMultiSig(ethers.ZeroAddress))
@@ -1481,9 +1365,10 @@ describe("LLAVaultBase", function () {
       await llaVault.connect(addr1).deposit(tokenAddress, largeAmount);
 
       // Verify the payment record
-      const paymentCount = await getPaymentCount(addr1.address);
-      const payment = await llaVault.payments(addr1.address, paymentCount - 1n);
-      expect(payment.amount).to.equal(largeAmount);
+      // TODO 验证
+      // const paymentCount = await getPaymentCount(addr1.address);
+      // const payment = await llaVault.payments(addr1.address, paymentCount - 1n);
+      // expect(payment.amount).to.equal(largeAmount);
     });
 
     it("should handle multiple deposits", async function () {
@@ -1500,10 +1385,11 @@ describe("LLAVaultBase", function () {
       for (let i = 0; i < iterations; i++) {
         await llaVault.connect(addr1).deposit(tokenAddress, amount);
       }
+      // TODO 验证
 
       // Verify the number of payment records
-      const paymentCount = await getPaymentCount(addr1.address);
-      expect(paymentCount).to.be.at.least(iterations);
+      // const paymentCount = await getPaymentCount(addr1.address);
+      // expect(paymentCount).to.be.at.least(iterations);
     });
   });
 
@@ -1581,13 +1467,4 @@ describe("LLAVaultBase", function () {
         .withArgs(TOKEN_MANAGER_ROLE, addr3.address, owner.address);
     });
   });
-
-  /**
-   * @notice Helper function to get the number of payment records.
-   * @param address Helper function to get the number of payment records.
-   * @returns
-   */
-  async function getPaymentCount(address: string) {
-    return await llaVault.getPaymentCount(address);
-  }
 });

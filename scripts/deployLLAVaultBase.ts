@@ -96,13 +96,6 @@ async function main() {
       )
     );
     console.log(
-      "Minter:",
-      await llaVaultBase.hasRole(
-        await llaVaultBase.MINTER_ROLE(),
-        admin.address
-      )
-    );
-    console.log(
       "TokenManager:",
       await llaVaultBase.hasRole(
         await llaVaultBase.TOKEN_MANAGER_ROLE(),
