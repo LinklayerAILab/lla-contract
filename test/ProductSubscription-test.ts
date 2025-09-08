@@ -74,12 +74,12 @@ describe("ProductSubscription", function () {
             expect(await productSubscription.version()).to.equal("v1.0");
             
             // 检查角色
-            const DEFAULT_ADMIN_ROLE = await productSubscription.DEFAULT_ADMIN_ROLE();
+            const ADMIN_ROLE = await productSubscription.ADMIN_ROLE();
             const PAUSER_ROLE = await productSubscription.PAUSER_ROLE();
             const TOKEN_MANAGER_ROLE = await productSubscription.TOKEN_MANAGER_ROLE();
             const UPGRADER_ROLE = await productSubscription.UPGRADER_ROLE();
             
-            expect(await productSubscription.hasRole(DEFAULT_ADMIN_ROLE, await admin.getAddress())).to.be.true;
+            expect(await productSubscription.hasRole(ADMIN_ROLE, await admin.getAddress())).to.be.true;
             expect(await productSubscription.hasRole(PAUSER_ROLE, await pauser.getAddress())).to.be.true;
             expect(await productSubscription.hasRole(TOKEN_MANAGER_ROLE, await tokenManager.getAddress())).to.be.true;
             expect(await productSubscription.hasRole(UPGRADER_ROLE, await upgrader.getAddress())).to.be.true;
@@ -220,9 +220,10 @@ describe("ProductSubscription", function () {
         it("应该成功购买商品", async function () {
             const initialMultiSigBalance = await mockUSDT.balanceOf(await multiSig.getAddress());
             const initialUserBalance = await mockUSDT.balanceOf(await user1.getAddress());
+            const orderId = "12345";
 
             await expect(
-                productSubscription.connect(user1).purchaseProduct(productId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1)
+                productSubscription.connect(user1).purchaseProduct(productId, orderId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1)
             ).to.emit(productSubscription, "PaymentDeposited");
 
             // 检查余额变化
@@ -231,6 +232,7 @@ describe("ProductSubscription", function () {
 
             expect(finalMultiSigBalance).to.equal(initialMultiSigBalance + productAmount);
             expect(finalUserBalance).to.equal(initialUserBalance - productAmount);
+            
 
             // 检查购买记录
             expect(await productSubscription.hasUserPurchased(await user1.getAddress(), productId)).to.be.true;
@@ -239,23 +241,23 @@ describe("ProductSubscription", function () {
 
         it("应该拒绝不存在的商品", async function () {
             await expect(
-                productSubscription.connect(user1).purchaseProduct(999, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1)
+                productSubscription.connect(user1).purchaseProduct(999, "12345", await mockUSDT.getAddress(), TELEGRAM_USER_ID_1)
             ).to.be.revertedWithCustomError(productSubscription, "ProductDoesNotExist");
         });
 
         it("应该拒绝不支持的代币", async function () {
             await expect(
-                productSubscription.connect(user1).purchaseProduct(productId, await mockUSDC.getAddress(), TELEGRAM_USER_ID_1)
+                productSubscription.connect(user1).purchaseProduct(productId, "12345", await mockUSDC.getAddress(), TELEGRAM_USER_ID_1)
             ).to.be.revertedWithCustomError(productSubscription, "UnsupportedPayToken");
         });
 
         it("应该拒绝无效的Telegram userId", async function () {
             await expect(
-                productSubscription.connect(user1).purchaseProduct(productId, await mockUSDT.getAddress(), INVALID_USER_ID)
+                productSubscription.connect(user1).purchaseProduct(productId, "12345", await mockUSDT.getAddress(), INVALID_USER_ID)
             ).to.be.revertedWithCustomError(productSubscription, "InvalidUserId");
 
             await expect(
-                productSubscription.connect(user1).purchaseProduct(productId, await mockUSDT.getAddress(), EMPTY_USER_ID)
+                productSubscription.connect(user1).purchaseProduct(productId, "12345", await mockUSDT.getAddress(), EMPTY_USER_ID)
             ).to.be.revertedWithCustomError(productSubscription, "InvalidUserId");
         });
 
@@ -268,8 +270,8 @@ describe("ProductSubscription", function () {
         // });
 
         it("应该正确处理多用户购买同一商品", async function () {
-            await productSubscription.connect(user1).purchaseProduct(productId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
-            await productSubscription.connect(user2).purchaseProduct(productId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_2);
+            await productSubscription.connect(user1).purchaseProduct(productId, "12345", await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            await productSubscription.connect(user2).purchaseProduct(productId, "67890", await mockUSDT.getAddress(), TELEGRAM_USER_ID_2);
 
             expect(await productSubscription.hasUserPurchased(await user1.getAddress(), productId)).to.be.true;
             expect(await productSubscription.hasUserPurchased(await user2.getAddress(), productId)).to.be.true;
@@ -277,7 +279,8 @@ describe("ProductSubscription", function () {
         });
 
         it("应该能够根据Telegram userId查询购买记录", async function () {
-            await productSubscription.connect(user1).purchaseProduct(productId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            const orderId = "12345";
+            await productSubscription.connect(user1).purchaseProduct(productId, orderId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
             
             const records = await productSubscription.getPurchaseRecordsByTelegramUserId(TELEGRAM_USER_ID_1,1,10);
             expect(records.length).to.equal(1);
@@ -285,6 +288,83 @@ describe("ProductSubscription", function () {
             expect(record.buyer).to.equal(await user1.getAddress());
             expect(record.productId).to.equal(productId);
             expect(record.userId).to.equal(TELEGRAM_USER_ID_1);
+            expect(record.orderId).to.equal(orderId);
+        });
+
+        it("应该能够根据userId和orderId查询单个购买记录", async function () {
+            const orderId1 = "12345";
+            const orderId2 = "67890";
+            
+            // 用户1购买商品
+            await productSubscription.connect(user1).purchaseProduct(productId, orderId1, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            // 用户2购买商品
+            await productSubscription.connect(user2).purchaseProduct(productId, orderId2, await mockUSDT.getAddress(), TELEGRAM_USER_ID_2);
+            
+            // 查询用户1的记录
+            const [record1, found1] = await productSubscription.getPurchaseRecordByUserIdAndOrderId(TELEGRAM_USER_ID_1, orderId1);
+            expect(found1).to.be.true;
+            expect(record1.buyer).to.equal(await user1.getAddress());
+            expect(record1.productId).to.equal(productId);
+            expect(record1.userId).to.equal(TELEGRAM_USER_ID_1);
+            expect(record1.orderId).to.equal(orderId1);
+            expect(record1.symbol).to.equal("USDT");
+            
+            // 查询用户2的记录
+            const [record2, found2] = await productSubscription.getPurchaseRecordByUserIdAndOrderId(TELEGRAM_USER_ID_2, orderId2);
+            expect(found2).to.be.true;
+            expect(record2.buyer).to.equal(await user2.getAddress());
+            expect(record2.orderId).to.equal(orderId2);
+            expect(record2.userId).to.equal(TELEGRAM_USER_ID_2);
+        });
+
+        it("应该正确处理不存在的userId和orderId组合查询", async function () {
+            const orderId = "12345";
+            await productSubscription.connect(user1).purchaseProduct(productId, orderId, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            
+            // 查询不存在的userId
+            const [record1, found1] = await productSubscription.getPurchaseRecordByUserIdAndOrderId("9999999999", orderId);
+            expect(found1).to.be.false;
+            expect(record1.orderId).to.equal("");
+            expect(record1.buyer).to.equal(ethers.ZeroAddress);
+            expect(record1.userId).to.equal("");
+            
+            // 查询存在的userId但不存在的orderId
+            const [record2, found2] = await productSubscription.getPurchaseRecordByUserIdAndOrderId(TELEGRAM_USER_ID_1, "99999");
+            expect(found2).to.be.false;
+            expect(record2.orderId).to.equal("");
+            
+            // 查询不存在的userId和不存在的orderId
+            const [record3, found3] = await productSubscription.getPurchaseRecordByUserIdAndOrderId("8888888888", "88888");
+            expect(found3).to.be.false;
+        });
+
+        it("应该正确处理相同用户多个不同订单的查询", async function () {
+            const orderId1 = "11111";
+            const orderId2 = "22222";
+            const orderId3 = "33333";
+            
+            // 同一用户购买多次
+            await productSubscription.connect(user1).purchaseProduct(productId, orderId1, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            await productSubscription.connect(user1).purchaseProduct(productId, orderId2, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            await productSubscription.connect(user1).purchaseProduct(productId, orderId3, await mockUSDT.getAddress(), TELEGRAM_USER_ID_1);
+            
+            // 分别查询每个订单
+            const [record1, found1] = await productSubscription.getPurchaseRecordByUserIdAndOrderId(TELEGRAM_USER_ID_1, orderId1);
+            expect(found1).to.be.true;
+            expect(record1.orderId).to.equal(orderId1);
+            
+            const [record2, found2] = await productSubscription.getPurchaseRecordByUserIdAndOrderId(TELEGRAM_USER_ID_1, orderId2);
+            expect(found2).to.be.true;
+            expect(record2.orderId).to.equal(orderId2);
+            
+            const [record3, found3] = await productSubscription.getPurchaseRecordByUserIdAndOrderId(TELEGRAM_USER_ID_1, orderId3);
+            expect(found3).to.be.true;
+            expect(record3.orderId).to.equal(orderId3);
+            
+            // 验证所有记录都属于同一用户
+            expect(record1.userId).to.equal(TELEGRAM_USER_ID_1);
+            expect(record2.userId).to.equal(TELEGRAM_USER_ID_1);
+            expect(record3.userId).to.equal(TELEGRAM_USER_ID_1);
         });
     });
 
@@ -415,6 +495,7 @@ describe("ProductSubscription", function () {
         it("购买事件应该包含所有必要信息", async function () {
             const tx = await productSubscription.connect(user1).purchaseProduct(
                 1, 
+                "12345",
                 await mockUSDT.getAddress(), 
                 TELEGRAM_USER_ID_1
             );

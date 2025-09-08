@@ -23,12 +23,13 @@ struct ProductItem {
  * 购买记录结构
  */
 struct PurchaseRecord {
+    string orderId; // 订单id
     address buyer;
     uint256 productId;
     uint256 amount;
-    address token;
     string userId;  // Telegram userId 为字符串格式，如 "6543877705"
     uint256 timestamp;
+    string symbol;
 }
 
 contract ProductSubscription is
@@ -103,16 +104,14 @@ contract ProductSubscription is
     error TokenRemoveFailed(address _token);
     error InvalidUserId(string _userId);
     // error ProductAlreadyPurchased(address buyer, uint256 productId);
-
-    /**
-     * 初始化合约
+/**
+    * 初始化合约
      * @param _defaultAdmin 默认管理员地址
      * @param _pauser 暂停权限地址
      * @param _tokenManager 代币管理员地址
      * @param _upgrader 升级权限地址
-     * @param _productManager 产品管理员地址
      * @param _multiSig 多签地址
-     */
+ */
     function initialize(
         address _defaultAdmin,
         address _pauser,
@@ -434,11 +433,13 @@ contract ProductSubscription is
     /**
      * 购买商品
      * @param productId 商品ID
+     * @param orderId 订单ID
      * @param payToken 支付代币地址
      * @param userId 用户ID
      */
     function purchaseProduct(
         uint256 productId,
+        string memory orderId,
         address payToken,
         string memory userId
     ) external whenNotPaused nonReentrant {
@@ -458,9 +459,9 @@ contract ProductSubscription is
         
         // 验证 Telegram userId 格式（应该是数字字符串）
         // 临时注释掉严格验证，用于调试
-        // if(!_isValidTelegramUserId(userId)){
-        //     revert InvalidUserId(userId);
-        // }
+        if(!_isValidTelegramUserId(userId)){
+            revert InvalidUserId(userId);
+        }
         
         // // 检查是否已经购买过该商品
         // if(userPurchases[msg.sender][productId]){
@@ -487,13 +488,15 @@ contract ProductSubscription is
         // 记录购买
         userPurchases[msg.sender][productId] = true;
         uint256 purchaseId = purchaseRecords.length;
+        string memory symbol = ERC20(payToken).symbol();
         purchaseRecords.push(PurchaseRecord({
             buyer: msg.sender,
+            orderId: orderId,
             productId: productId,
             amount: item.amount,
-            token: payToken,
             userId: userId,
-            timestamp: block.timestamp
+            timestamp: block.timestamp,
+            symbol: symbol
         }));
         userPurchaseIds[msg.sender].push(purchaseId);
         
@@ -587,6 +590,38 @@ contract ProductSubscription is
         for (uint256 j = start; j < end; j++) {
             records[j - start] = purchaseRecords[matchedIdx[j]];
         }
+    }
+
+    /// @notice 根据 userId 和 orderId 查询单个购买记录
+    /// @param _userId 用户ID (字符串)
+    /// @param _orderId 订单ID
+    /// @return record 匹配的购买记录，如果未找到则返回空记录
+    /// @return found 是否找到匹配记录
+    function getPurchaseRecordByUserIdAndOrderId(
+        string calldata _userId,
+        string calldata _orderId
+    )
+        external
+        view
+        returns (PurchaseRecord memory record, bool found)
+    {
+        for (uint256 i = 0; i < purchaseRecords.length; i++) {
+            if (keccak256(bytes(purchaseRecords[i].userId)) == keccak256(bytes(_userId)) && 
+                keccak256(bytes(purchaseRecords[i].orderId)) == keccak256(bytes(_orderId))) {
+                return (purchaseRecords[i], true);
+            }
+        }
+        
+        // 如果未找到，返回空记录和false
+        return (PurchaseRecord({
+            orderId: "",
+            buyer: address(0),
+            productId: 0,
+            amount: 0,
+            userId: "",
+            timestamp: 0,
+            symbol: ""
+        }), false);
     }
 
 }
