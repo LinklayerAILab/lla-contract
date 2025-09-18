@@ -12,7 +12,7 @@ console.log("MINTER_ADDR:", process.env.MINTER_ADDR);
 console.log("UPGRADER_ADDR:", process.env.UPGRADER_ADDR);
 console.log("TOKENMANAGER_ADDR:", process.env.TOKENMANAGER_ADDR);
 console.log("MULTISIG_ADDR:", process.env.MULTISIG_ADDR);
-const SEPOLIA_URL = "https://data-seed-prebsc-1-s1.binance.org:8545/";
+const SEPOLIA_URL = "https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161";
 const {
   OWNER_ADDR,
   PAUSER_ADDR,
@@ -39,9 +39,16 @@ const config: HardhatUserConfig = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200,
+        runs: 1, // 降低runs值以减小合约大小
       },
-
+      // 启用viaIR以获得更好的优化
+      viaIR: true,
+      // 添加输出选择以减小大小
+      outputSelection: {
+        "*": {
+          "*": ["evm.bytecode", "evm.deployedBytecode", "abi"]
+        }
+      }
     },
   },
 

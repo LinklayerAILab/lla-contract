@@ -1,6 +1,5 @@
 // SPDX-License-Identifier: MIT
-// 兼容OpenZeppelin Contracts ^5.0.0
-pragma solidity ^0.8.28;
+pragma solidity ^0.8.26;
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {PausableUpgradeable} from "@openzeppelin/contracts-upgradeable/utils/PausableUpgradeable.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
@@ -9,29 +8,14 @@ import {ReentrancyGuardUpgradeable} from "@openzeppelin/contracts-upgradeable/ut
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-
-/**
- * 商品项结构
- */
-struct ProductItem {
-    uint256 productId;
-    uint256 totalDays;
-    uint256 amount;
-}
-
-/**
- * 购买记录结构
- */
-struct PurchaseRecord {
-    string orderId; // 订单id
-    address buyer;
-    uint256 productId;
-    uint256 amount;
-    string userId;  // Telegram userId 为字符串格式，如 "6543877705"
-    uint256 timestamp;
-    string symbol;
-}
-
+import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import "./libraries/ValidationLib.sol";
+import {ProductLib, ProductItem} from "./libraries/ProductLib.sol";
+import {PurchaseLib, PurchaseRecord} from "./libraries/PurchaseLib.sol";
+import {QueryLib} from "./libraries/QueryLib.sol";
+import {DecimalConversionLib} from "./libraries/DecimalConversionLib.sol";
+import {ProductQueryLib} from "./libraries/ProductQueryLib.sol";
+import {AdminLib} from "./libraries/AdminLib.sol";
 contract ProductSubscription is
     Initializable,
     PausableUpgradeable,
@@ -40,76 +24,67 @@ contract ProductSubscription is
     AccessControlUpgradeable
 {
     using SafeERC20 for IERC20;
+    using ValidationLib for address;
+    using ValidationLib for string;
+    using ProductLib for uint256;
+    using ProductLib for ProductItem[];
+    using PurchaseLib for address;
+    using QueryLib for PurchaseRecord[];
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN_ROLE");
-    // 暂停合约角色
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
-    // 升级合约角色
     bytes32 public constant UPGRADER_ROLE = keccak256("UPGRADER_ROLE");
-    // 代币管理角色
     bytes32 public constant TOKEN_MANAGER_ROLE =
         keccak256("TOKEN_MANAGER_ROLE");
-    
-    ProductItem[] public productList;
-    // 商品映射（通过 productId 快速查找商品索引）
-    mapping(uint256 => uint256) private productIdToIndex;
-    
-    // 购买记录
-    PurchaseRecord[] public purchaseRecords;
-    // 用户购买记录映射 (buyer => productId => hasPurchased)
-    mapping(address => mapping(uint256 => bool)) public userPurchases;
-    // 用户购买记录索引 (buyer => purchaseIds[])
-    mapping(address => uint256[]) public userPurchaseIds;
-
-    // 状态变量
-    // 用于管理操作的多签钱包地址
-    address public multiSig;
-
-    // 合约版本标识
-    string public constant version = "v1.0";
-
-    // 代币地址到其支持的映射
-    mapping(address => bool) public supportCoins;
-    
-    // 产品管理角色 - 专门用于商品管理
     bytes32 public constant PRODUCT_MANAGER_ROLE = keccak256("PRODUCT_MANAGER_ROLE");
     
-    // 事件
-    event ProductAdded(uint256 indexed productId, uint256 newTotalDays, uint256 newAmount); // 商品添加事件
-    event ProductUpdated(uint256 indexed productId, uint256 newTotalDays, uint256 newAmount,uint256 oldTotalDays,uint256 oldAmount); // 商品更新事件
-    event ProductRemoved(uint256 indexed productId); // 商品移除事件
-    event MultiSigUpdated(address indexed newAddress); // 多签地址更新事件
+    ProductItem[] public productList;
+    mapping(uint256 => ProductItem) private productIdToItem;
+    mapping(uint256 => bool) private productExists;
+    
+    PurchaseRecord[] public purchaseRecords;
+    mapping(string => bool) public orderExists;
+    mapping(address => uint256[]) public userPurchaseIds;
+    mapping(bytes32 => uint256[]) public userIdToPurchaseIds;
+    mapping(string => uint256) public orderIdToPurchaseId;
+    
+    uint256[46] private __gap;
+
+    address public multiSig;
+    mapping(address => bool) public supportCoins;
+    
+    // 添加产品计数器，用于高效统计活跃产品数量
+    uint256 public activeProductCount;
+    
+    // V2升级：添加代币精度支持  
+    mapping(address => uint8) public tokenDecimals;
+    
+    event ProductAdded(uint256 indexed productId, uint256 newAmount);
+    event ProductUpdated(uint256 indexed productId, uint256 newAmount,uint256 oldAmount);
+    event ProductRemoved(uint256 indexed productId);
+    event MultiSigUpdated(address indexed newAddress);
     event PaymentDeposited(
         uint256 indexed productId,
         address indexed buyer,
-        string indexed userId,  // Telegram userId 字符串格式
+        string indexed userId,
         uint256 when,
         uint256 amount,
         address token,
         uint256 purchaseId
-    ); // 支付存入事件
-    event TokenAdded(address indexed token, string symbol); // 代币添加事件
-    event TokenRemoved(address indexed token, string symbol); // 代币移除事件
+    );
+    event TokenAdded(address indexed token, string symbol);
+    event TokenRemoved(address indexed token, string symbol);
 
-    // 自定义错误
-    error InvalidAmount(uint256 _amount); // 无效金额错误
-    error InvalidAddress(address _address); // 无效地址错误
-    error AlreadyInTheSupportedIcon(address _token); // 代币已支持错误
-    error InvalidImplementationAddress(address _newImplementation); // 无效实现地址错误
-    error InvalidProductId(uint256 _productId);
-    error InvalidProductAmount(uint256 _amount);
-    error ProductDoesNotExist(uint256 _productId);
-    error ProductAlreadyExists(uint256 _productId);
-    error UnsupportedPayToken(address _payToken);
-    error TokenAddFailed(address _token);
-    error TokenRemoveFailed(address _token);
-    error InvalidUserId(string _userId);
-    // error ProductAlreadyPurchased(address buyer, uint256 productId);
+    error Invalid();
+    error Exists();
+    error NotFound();
+    error Unsupported();
 /**
     * 初始化合约
      * @param _defaultAdmin 默认管理员地址
      * @param _pauser 暂停权限地址
      * @param _tokenManager 代币管理员地址
      * @param _upgrader 升级权限地址
+     * @param _productManager 产品管理员地址
      * @param _multiSig 多签地址
  */
     function initialize(
@@ -117,32 +92,32 @@ contract ProductSubscription is
         address _pauser,
         address _tokenManager,
         address _upgrader,
+        address _productManager,
         address _multiSig
     ) public initializer {
-        if (_defaultAdmin == address(0)) revert InvalidAddress(address(0));
-        if (_pauser == address(0)) revert InvalidAddress(address(0));
-        if (_tokenManager == address(0)) revert InvalidAddress(address(0));
-        if (_upgrader == address(0)) revert InvalidAddress(address(0));
-        if (_multiSig == address(0)) revert InvalidAddress(address(0));
+        if (_defaultAdmin == address(0) || _pauser == address(0) || _tokenManager == address(0) || _upgrader == address(0) || _productManager == address(0) || _multiSig == address(0)) revert Invalid();
 
         __UUPSUpgradeable_init();
         __Pausable_init();
         __ReentrancyGuard_init();
         __AccessControl_init();
         
-        // 设置默认管理员角色，这是所有角色管理的根角色
+        // 修复：分离角色权限，减少集中化风险
+        _grantRole(DEFAULT_ADMIN_ROLE, _defaultAdmin); // 给予超级管理员权限以管理其他角色
         _grantRole(ADMIN_ROLE, _defaultAdmin);
         _grantRole(PAUSER_ROLE, _pauser);
         _grantRole(UPGRADER_ROLE, _upgrader);
         _grantRole(TOKEN_MANAGER_ROLE, _tokenManager);
-        _grantRole(PRODUCT_MANAGER_ROLE, _upgrader); // 默认给upgrader产品管理权限
+        _grantRole(PRODUCT_MANAGER_ROLE, _productManager);
+        
+        
         multiSig = _multiSig;
     }
 
     function updateMultiSig(
         address _newMultiSig
     ) external onlyRole(ADMIN_ROLE) {
-        if (_newMultiSig == address(0)) revert InvalidAddress(address(0));
+        if (_newMultiSig == address(0)) revert Invalid();
         multiSig = _newMultiSig;
         emit MultiSigUpdated(_newMultiSig);
     }
@@ -150,27 +125,26 @@ contract ProductSubscription is
     /**
      * 添加商品
      * @param productId 商品ID
-     * @param totalDays 总天数
      * @param amount 金额
      */
     function addProduct(
         uint256 productId,
-        uint256 totalDays,
         uint256 amount
     ) external onlyRole(PRODUCT_MANAGER_ROLE) whenNotPaused nonReentrant {
-        if (productId == 0) revert InvalidProductId(productId);
-        if (amount == 0) revert InvalidProductAmount(amount);
-        if(productIdToIndex[productId] != 0){
-            revert ProductAlreadyExists(productId);
-        }
+        if (productId == 0 || amount == 0) revert Invalid();
+        if (productExists[productId]) revert Exists();
+        
         ProductItem memory newItem = ProductItem({
             productId: productId,
-            totalDays: totalDays,
             amount: amount
         });
+        
         productList.push(newItem);
-        productIdToIndex[productId] = productList.length;
-        emit ProductAdded(productId,totalDays,amount);
+        productIdToItem[productId] = newItem;
+        productExists[productId] = true;
+        activeProductCount++; // 增加计数器
+        
+        emit ProductAdded(productId,amount);
     }
 
     /**
@@ -180,22 +154,24 @@ contract ProductSubscription is
     function removeProduct(
         uint256 productId
     ) external onlyRole(PRODUCT_MANAGER_ROLE) whenNotPaused nonReentrant {
-        if(productIdToIndex[productId] == 0){
-            revert ProductDoesNotExist(productId);
-        }
-        uint256 index = productIdToIndex[productId] - 1; // 索引从 0 开始
+        if (!productExists[productId]) revert NotFound();
+        
+        (uint256 index, bool found) = productList.findProductIndex(productId);
+        require(found);
+        
         uint256 lastIndex = productList.length - 1;
         if(index != lastIndex){
             // 将最后一个商品覆盖到要删除的商品位置
             productList[index] = productList[lastIndex];
-            // 更新映射
-            productIdToIndex[productList[index].productId] = index + 1;
         }
+        
         // 移除最后一个商品
         productList.pop();
 
         // 删除映射
-        delete productIdToIndex[productId];
+        delete productIdToItem[productId];
+        delete productExists[productId];
+        activeProductCount--; // 减少计数器
 
         emit ProductRemoved(productId);
     }
@@ -203,35 +179,34 @@ contract ProductSubscription is
     /**
      * 更新商品信息
      * @param productId 商品ID
-     * @param newTotalDays 新的总天数
      * @param newAmount 新的金额
      */
     function updateProduct(
         uint256 productId,
-        uint256 newTotalDays,
         uint256 newAmount
     ) external onlyRole(PRODUCT_MANAGER_ROLE) whenNotPaused nonReentrant {
-        uint256 mappedIndex = productIdToIndex[productId];
-        if(mappedIndex == 0){
-            revert ProductDoesNotExist(productId);
+        if (newAmount == 0) revert Invalid();
+        if (!productExists[productId]) revert NotFound();
+        
+        // 从直接映射获取旧值
+        ProductItem memory oldItem = productIdToItem[productId];
+        uint256 oldAmount = oldItem.amount;
+        
+        // 创建新的产品项
+        ProductItem memory newItem = ProductItem({
+            productId: productId,
+            amount: newAmount
+        });
+        
+        // 更新直接映射
+        productIdToItem[productId] = newItem;
+        
+        (uint256 index, bool found) = productList.findProductIndex(productId);
+        if (found) {
+            productList[index] = newItem;
         }
-        if (newAmount == 0) revert InvalidProductAmount(newAmount);
-        
-        uint256 index = mappedIndex - 1; // 索引从 0 开始
-        // 额外的边界检查
-        if(index >= productList.length) {
-            revert ProductDoesNotExist(productId);
-        }
-        
-        // 安全地获取旧值
-        uint256 oldTotalDays = productList[index].totalDays;
-        uint256 oldAmount = productList[index].amount;
-        
-        // 更新商品信息
-        productList[index].totalDays = newTotalDays;
-        productList[index].amount = newAmount;
 
-        emit ProductUpdated(productId, newTotalDays, newAmount,oldTotalDays,oldAmount);
+        emit ProductUpdated(productId, newAmount, oldAmount);
     }
 
     /**
@@ -242,143 +217,40 @@ contract ProductSubscription is
     function getProduct(
         uint256 productId
     ) public view returns (ProductItem memory) {
-        uint256 mappedIndex = productIdToIndex[productId];
-        if(mappedIndex == 0){
-            revert ProductDoesNotExist(productId);
-        }
-        uint256 index = mappedIndex - 1;
-        // 额外的边界检查
-        if(index >= productList.length) {
-            revert ProductDoesNotExist(productId);
-        }
-        return productList[index];
+        if (!productExists[productId]) revert NotFound();
+        return productIdToItem[productId];
     }
 
     /**
-     * 获取所有商品列表（仅限小规模数据，建议使用分页查询）
+     * 获取所有商品列表（委托给库函数）
      * @return 商品项数组
      */
     function getProductList() public view returns (ProductItem[] memory) {
-        // 为防止DOS攻击，限制最大返回100个商品
-        uint256 length = productList.length;
-        if (length > 100) {
-            // 只返回前100个商品
-            ProductItem[] memory limitedList = new ProductItem[](100);
-            for (uint256 i = 0; i < 100; i++) {
-                limitedList[i] = productList[i];
-            }
-            return limitedList;
-        }
-        return productList;
+        return ProductQueryLib.getProductList(productList, productIdToItem, productExists, activeProductCount);
     }
     
     /**
-     * 分页获取商品列表
+     * 分页获取商品列表（委托给库函数）
      * @param offset 起始位置
-     * @param limit 每页数量（最大100）
+     * @param limit 每页数量（最大50）
      * @return 商品项数组
      */
-    function getProductListPaginated(
-        uint256 offset, 
-        uint256 limit
-    ) public view returns (ProductItem[] memory) {
-        uint256 length = productList.length;
-        
-        // 限制每页最大100个商品
-        if (limit > 100) {
-            limit = 100;
-        }
-        
-        // 检查offset是否超出范围
-        if (offset >= length) {
-            return new ProductItem[](0);
-        }
-        
-        // 计算实际返回数量
-        uint256 remaining = length - offset;
-        uint256 actualLimit = remaining < limit ? remaining : limit;
-        
-        ProductItem[] memory result = new ProductItem[](actualLimit);
-        for (uint256 i = 0; i < actualLimit; i++) {
-            result[i] = productList[offset + i];
-        }
-        
-        return result;
+    function getProductListPaginated(uint256 offset, uint256 limit) public view returns (ProductItem[] memory) {
+        return ProductQueryLib.getProductListPaginated(productList, offset, limit);
     }
     
-    /**
-     * 获取商品总数
-     * @return 商品总数
-     */
-    function getProductCount() public view returns (uint256) {
-        return productList.length;
-    }
     
-    /**
-     * 检查用户是否购买过某个商品
-     * @param buyer 买家地址
-     * @param productId 商品ID
-     * @return 是否已购买
-     */
-    function hasUserPurchased(address buyer, uint256 productId) public view returns (bool) {
-        return userPurchases[buyer][productId];
-    }
     
-    /**
-     * 获取用户的购买记录数量
-     * @param buyer 买家地址
-     * @return 购买记录数量
-     */
-    function getUserPurchaseCount(address buyer) public view returns (uint256) {
-        return userPurchaseIds[buyer].length;
-    }
     
-    /**
-     * 获取用户的购买记录ID列表
-     * @param buyer 买家地址
-     * @return 购买记录ID数组
-     */
-    function getUserPurchaseIds(address buyer) public view returns (uint256[] memory) {
-        return userPurchaseIds[buyer];
-    }
+    
+    
     
     /**
      * 获取购买记录总数
      * @return 购买记录总数
      */
-    function getPurchaseRecordCount() public view returns (uint256) {
-        return purchaseRecords.length;
-    }
     
-    /**
-     * 验证 Telegram UserId 格式
-     * @param userId 用户ID字符串
-     * @return 是否为有效格式
-     */
-    function _isValidTelegramUserId(string memory userId) private pure returns (bool) {
-        bytes memory userIdBytes = bytes(userId);
-        uint256 length = userIdBytes.length;
-        
-        // Telegram userId 长度通常在 1-20 位数字之间
-        if (length == 0 || length > 20) {
-            return false;
-        }
-        
-        // 检查是否全部为数字字符
-        for (uint256 i = 0; i < length; i++) {
-            bytes1 char = userIdBytes[i];
-            if (char < 0x30 || char > 0x39) { // 不在 '0'-'9' 范围内
-                return false;
-            }
-        }
-        
-        return true;
-    }
     
-    // 添加调试函数来检查 userId 验证
-    function checkTelegramUserId(string memory userId) public pure returns (bool) {
-        return _isValidTelegramUserId(userId);
-    }
 
     /**
      * 暂停合约操作
@@ -394,17 +266,6 @@ contract ProductSubscription is
         _unpause();
     }
 
-    /**
-     * 动态添加角色
-     * @param _role 角色
-     * @param _account 角色对应的地址
-     */
-    function addRole(
-        bytes32 _role,
-        address _account
-    ) external onlyRole(ADMIN_ROLE) {
-        _grantRole(_role, _account);
-    }
 
     /**
      * 取消对某个地址的角色授权
@@ -414,20 +275,32 @@ contract ProductSubscription is
     function revokeRole(
         bytes32 _role,
         address _account
-    ) public override onlyRole(ADMIN_ROLE) {
+    ) public override onlyRole(getRoleAdmin(_role)) {
+        // 修复：使用角色管理层次，而不是直接使用ADMIN_ROLE
         _revokeRole(_role, _account);
     }
 
     /**
-     * 更新合约实现
+     * 更新合约实现 - 增强安全性检查
      * @param _newImplementation 新实现合约的地址
      */
     function _authorizeUpgrade(
         address _newImplementation
-    ) internal view override onlyRole(UPGRADER_ROLE) {
-        if (_newImplementation == address(0)) {
-            revert InvalidImplementationAddress(_newImplementation);
-        }
+    ) internal view override {
+        // 安全修复：只允许ADMIN_ROLE升级合约，确保最高级别的安全控制
+        require(
+            hasRole(ADMIN_ROLE, msg.sender),
+            "Only admin can upgrade"
+        );
+        
+        if (_newImplementation == address(0)) revert Invalid();
+        
+        // 修复：移除assembly代码，使用更安全的检查方式
+        _validateNewImplementation(_newImplementation);
+    }
+    
+    function _validateNewImplementation(address impl) private view {
+        require(impl.code.length > 0);
     }
 
     /**
@@ -443,115 +316,92 @@ contract ProductSubscription is
         address payToken,
         string memory userId
     ) external whenNotPaused nonReentrant {
-        uint256 mappedIndex = productIdToIndex[productId];
-        if(mappedIndex == 0){
-            revert ProductDoesNotExist(productId);
+        // 修复：使用O(1)检查产品是否存在
+        if (!productExists[productId]) {
+            revert NotFound();
         }
-        if(payToken == address(0)){
-            revert InvalidAddress(payToken);
-        }
-        if(!supportCoins[payToken]){
-            revert UnsupportedPayToken(payToken);
-        }
-        if(bytes(userId).length == 0){
-            revert InvalidUserId(userId);
-        }
+        if (payToken == address(0) || !supportCoins[payToken] || bytes(orderId).length == 0 || bytes(userId).length == 0) revert Invalid();
         
-        // 验证 Telegram userId 格式（应该是数字字符串）
-        // 临时注释掉严格验证，用于调试
-        if(!_isValidTelegramUserId(userId)){
-            revert InvalidUserId(userId);
-        }
+        if(!userId.isValidTelegramUserId()) revert Invalid();
         
-        // // 检查是否已经购买过该商品
-        // if(userPurchases[msg.sender][productId]){
-        //     revert ProductAlreadyPurchased(msg.sender, productId);
-        // }
+        if(orderExists[orderId]) revert Exists();
         
-        uint256 index = mappedIndex - 1;
-        // 额外的边界检查
-        if(index >= productList.length) {
-            revert ProductDoesNotExist(productId);
-        }
-        
-        ProductItem memory item = productList[index];
-        if (item.amount == 0) revert InvalidProductAmount(item.amount);
+        // 修复：直接从映射获取产品信息
+        ProductItem memory item = productIdToItem[productId];
+        if (item.amount == 0) revert Invalid();
 
-        // 将支付从用户转移到多签地址
-        // 转账
-        IERC20(payToken).safeTransferFrom(
-            msg.sender,
-            multiSig,
-            item.amount
-        );
+        // V2升级：根据代币精度计算实际支付金额
+        uint256 actualPayAmount = DecimalConversionLib.convertPriceForToken(item.amount, tokenDecimals[payToken]);
         
-        // 记录购买
-        userPurchases[msg.sender][productId] = true;
         uint256 purchaseId = purchaseRecords.length;
-        string memory symbol = ERC20(payToken).symbol();
-        purchaseRecords.push(PurchaseRecord({
-            buyer: msg.sender,
-            orderId: orderId,
-            productId: productId,
-            amount: item.amount,
-            userId: userId,
-            timestamp: block.timestamp,
-            symbol: symbol
-        }));
+        string memory symbol = PurchaseLib.getTokenSymbol(payToken);
+        
+        PurchaseLib.executePayment(payToken, msg.sender, multiSig, actualPayAmount);
+        
+        // 转账成功后才更新状态，保证原子性
+        orderExists[orderId] = true;
+        
+        purchaseRecords.push(PurchaseLib.createPurchaseRecord(
+            msg.sender,
+            orderId,
+            productId,
+            actualPayAmount, // V2升级：记录实际支付的金额
+            userId,
+            symbol
+        ));
+        
         userPurchaseIds[msg.sender].push(purchaseId);
+        
+        // 添加索引映射以提高查询效率
+        bytes32 userIdHash = keccak256(bytes(userId));
+        userIdToPurchaseIds[userIdHash].push(purchaseId);
+        orderIdToPurchaseId[orderId] = purchaseId;
         
         emit PaymentDeposited(
             productId,
             msg.sender,
             userId,
             block.timestamp,
-            item.amount,
+            actualPayAmount, // V2升级：事件中记录实际支付金额
             payToken,
             purchaseId
         );
     }
 
     /**
-     * 添加支持的代币
+     * 添加支持的代币 (V2升级版本，支持精度处理)
      * @param _token 代币地址
      */
     function addSupportedToken(
         address _token
     ) public onlyRole(TOKEN_MANAGER_ROLE) whenNotPaused {
-        if (supportCoins[_token]) revert AlreadyInTheSupportedIcon(_token);
-        if (_token == address(0)) revert InvalidAddress(_token);
-
-        try ERC20(_token).symbol() returns (string memory tokenSymbol) {
-            supportCoins[_token] = true;
-            emit TokenAdded(_token, tokenSymbol);
-        }catch{
-            revert TokenAddFailed(_token);
-        }
+        if (_token == address(0)) revert Invalid();
+        if (supportCoins[_token]) revert Invalid();
+        AdminLib.addSupportedToken(_token, supportCoins, tokenDecimals);
+        string memory tokenSymbol = PurchaseLib.getTokenSymbol(_token);
+        emit TokenAdded(_token, tokenSymbol);
     }
 
     /**
-     * 移除支持的代币
+     * 移除支持的代币 (V2升级版本)
      * @param _token 代币地址
      */
     function removeSupportedToken(
         address _token
     ) public onlyRole(TOKEN_MANAGER_ROLE) whenNotPaused {
-        if (!supportCoins[_token]) revert UnsupportedPayToken(_token);
-        try ERC20(_token).symbol() returns (string memory tokenSymbol) {
-            supportCoins[_token] = false;
-            emit TokenRemoved(_token, tokenSymbol);
-        }catch{
-            revert TokenRemoveFailed(_token);
-        }
+        if (!supportCoins[_token]) revert Unsupported();
+        string memory tokenSymbol = PurchaseLib.getTokenSymbol(_token);
+        AdminLib.removeSupportedToken(_token, supportCoins, tokenDecimals);
+        emit TokenRemoved(_token, tokenSymbol);
     }
 
 
      /* ========= 查询函数 ========= */
 
-    /// @notice 按 Telegram userId 分页查询购买记录
+    /// @notice 按 Telegram userId 分页查询购买记录 (优化版本，使用索引映射)
     /// @param _userId   Telegram userId (字符串)
-    /// @param _page     页码，从 1 开始
-    /// @param _pageSize 每页条数
+    /// @param _page     页码，从 1 开始 (最大1000页)
+    /// @param _pageSize 每页条数 (最多50条)
     /// @return records  当前页的记录
     function getPurchaseRecordsByTelegramUserId(
         string calldata _userId,
@@ -562,37 +412,13 @@ contract ProductSubscription is
         view
         returns (PurchaseRecord[] memory records)
     {
-        require(_page > 0 && _pageSize > 0, "Invalid pagination");
-
-        // 1. 先找出所有匹配记录的索引
-        uint256 totalMatches = 0;
-        uint256[] memory matchedIdx = new uint256[](purchaseRecords.length);
-
-        for (uint256 i = 0; i < purchaseRecords.length; i++) {
-            if (keccak256(bytes(purchaseRecords[i].userId)) == keccak256(bytes(_userId))) {
-                matchedIdx[totalMatches++] = i;
-            }
-        }
-
-        // 2. 计算分页
-        uint256 start = (_page - 1) * _pageSize;
-        if (start >= totalMatches) {
-            return new PurchaseRecord[](0); // 越界，返回空数组
-        }
-
-        uint256 end = start + _pageSize;
-        if (end > totalMatches) {
-            end = totalMatches;
-        }
-
-        // 3. 组装结果
-        records = new PurchaseRecord[](end - start);
-        for (uint256 j = start; j < end; j++) {
-            records[j - start] = purchaseRecords[matchedIdx[j]];
-        }
+        bytes32 userIdHash = keccak256(bytes(_userId));
+        uint256[] memory matchedPurchaseIds = userIdToPurchaseIds[userIdHash];
+        
+        return QueryLib.getPaginatedRecords(purchaseRecords, matchedPurchaseIds, _page, _pageSize);
     }
 
-    /// @notice 根据 userId 和 orderId 查询单个购买记录
+    /// @notice 根据 userId 和 orderId 查询单个购买记录 (优化版本，使用直接索引)
     /// @param _userId 用户ID (字符串)
     /// @param _orderId 订单ID
     /// @return record 匹配的购买记录，如果未找到则返回空记录
@@ -605,23 +431,48 @@ contract ProductSubscription is
         view
         returns (PurchaseRecord memory record, bool found)
     {
-        for (uint256 i = 0; i < purchaseRecords.length; i++) {
-            if (keccak256(bytes(purchaseRecords[i].userId)) == keccak256(bytes(_userId)) && 
-                keccak256(bytes(purchaseRecords[i].orderId)) == keccak256(bytes(_orderId))) {
-                return (purchaseRecords[i], true);
+        // 修复：使用直接索引查询，兼容旧版本
+        if (!orderExists[_orderId]) {
+            return (PurchaseLib.createEmptyRecord(), false);
+        }
+        
+        uint256 purchaseId = orderIdToPurchaseId[_orderId];
+        
+        // 检查订单ID是否存在且索引有效
+        if (purchaseId < purchaseRecords.length) {
+            PurchaseRecord memory foundRecord = purchaseRecords[purchaseId];
+            // 修复：预计算hash值，避免重复计算
+            bytes32 userIdHash = keccak256(bytes(_userId));
+            bytes32 recordUserIdHash = keccak256(bytes(foundRecord.userId));
+            
+            if (userIdHash == recordUserIdHash) {
+                return (foundRecord, true);
             }
         }
         
-        // 如果未找到，返回空记录和false
-        return (PurchaseRecord({
-            orderId: "",
-            buyer: address(0),
-            productId: 0,
-            amount: 0,
-            userId: "",
-            timestamp: 0,
-            symbol: ""
-        }), false);
+        return (PurchaseLib.createEmptyRecord(), false);
     }
+
+    /* ========= V2升级：精度转换函数 ========= */
+    
+    /**
+     * 获取基准精度常量
+     */
+    function BASE_DECIMALS() public pure returns (uint8) {
+        return DecimalConversionLib.BASE_DECIMALS;
+    }
+
+    /**
+     * V2升级：根据代币精度转换产品价格（委托给库函数）
+     * @param baseAmount 基准价格 (产品存储的原始价格，假设为18位精度)
+     * @param token 支付代币地址
+     * @return 转换后的实际支付金额
+     */
+    function convertPriceForToken(uint256 baseAmount, address token) public view returns (uint256) {
+        return DecimalConversionLib.convertPriceForToken(baseAmount, tokenDecimals[token]);
+    }
+
+
+
 
 }
