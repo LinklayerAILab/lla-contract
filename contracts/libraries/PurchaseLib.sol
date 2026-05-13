@@ -11,7 +11,6 @@ struct PurchaseRecord {
     address buyer;
     uint256 productId;
     uint256 amount;
-    string userId;  // Telegram userId 为字符串格式，如 "6543877705"
     uint256 timestamp;
     string symbol;
 }
@@ -42,7 +41,6 @@ library PurchaseLib {
         string memory orderId,
         uint256 productId,
         uint256 amount,
-        string memory userId,
         string memory symbol
     ) internal view returns (PurchaseRecord memory) {
         return PurchaseRecord({
@@ -50,7 +48,6 @@ library PurchaseLib {
             orderId: orderId,
             productId: productId,
             amount: amount,
-            userId: userId,
             timestamp: block.timestamp,
             symbol: symbol
         });
@@ -62,7 +59,6 @@ library PurchaseLib {
             buyer: address(0),
             productId: 0,
             amount: 0,
-            userId: "",
             timestamp: 0,
             symbol: ""
         });

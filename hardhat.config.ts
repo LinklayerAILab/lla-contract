@@ -6,22 +6,18 @@ import "@nomicfoundation/hardhat-ignition-ethers";
 import "@openzeppelin/hardhat-upgrades";
 import "@nomicfoundation/hardhat-ethers";
 import "@nomicfoundation/hardhat-chai-matchers";
-console.log("OWNER_ADDR:", process.env.OWNER_ADDR);
-console.log("PAUSER_ADDR:", process.env.PAUSER_ADDR);
-console.log("MINTER_ADDR:", process.env.MINTER_ADDR);
-console.log("UPGRADER_ADDR:", process.env.UPGRADER_ADDR);
-console.log("TOKENMANAGER_ADDR:", process.env.TOKENMANAGER_ADDR);
-console.log("MULTISIG_ADDR:", process.env.MULTISIG_ADDR);
+
 const SEPOLIA_URL = "https://sepolia.infura.io/v3/9aa3d95b3bc440fa88ea12eaa4456161";
+const DUMMY_KEY = "0x0000000000000000000000000000000000000000000000000000000000000001";
 const {
-  OWNER_ADDR,
-  PAUSER_ADDR,
-  MINTER_ADDR,
-  UPGRADER_ADDR,
-  TOKENMANAGER_ADDR,
-  MULTISIG_ADDR,
-  TESTADDR_1,
-  TESTADDR_2,
+  OWNER_ADDR = DUMMY_KEY,
+  PAUSER_ADDR = DUMMY_KEY,
+  MINTER_ADDR = DUMMY_KEY,
+  UPGRADER_ADDR = DUMMY_KEY,
+  TOKENMANAGER_ADDR = DUMMY_KEY,
+  MULTISIG_ADDR = DUMMY_KEY,
+  TESTADDR_1 = DUMMY_KEY,
+  TESTADDR_2 = DUMMY_KEY,
 } = process.env as {
   OWNER_ADDR: string;
   PAUSER_ADDR: string;

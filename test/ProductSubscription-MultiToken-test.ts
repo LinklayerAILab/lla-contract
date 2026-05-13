@@ -16,8 +16,6 @@ describe("ProductSubscription V2 - Multi-Token Decimal Fix", function () {
     let user1: Signer;
     let user2: Signer;
 
-    const TELEGRAM_USER_ID_1 = "6543877705";
-    const TELEGRAM_USER_ID_2 = "1234567890";
 
     beforeEach(async function () {
         [admin, , tokenManager, , productManager, multiSig, user1, user2] = 
@@ -160,18 +158,16 @@ describe("ProductSubscription V2 - Multi-Token Decimal Fix", function () {
             
             // 用USDT购买
             await productSubscription.connect(user1).purchaseProduct(
-                1, 
-                "order-usdt", 
-                await mockUSDT.getAddress(), 
-                TELEGRAM_USER_ID_1
+                1,
+                "order-usdt",
+                await mockUSDT.getAddress()
             );
             
             // 用DAI购买  
             await productSubscription.connect(user2).purchaseProduct(
-                1, 
-                "order-dai", 
-                await mockDAI.getAddress(), 
-                TELEGRAM_USER_ID_2
+                1,
+                "order-dai",
+                await mockDAI.getAddress()
             );
 
             // 检查多签地址收到的代币数量
@@ -185,13 +181,12 @@ describe("ProductSubscription V2 - Multi-Token Decimal Fix", function () {
 
         it("购买记录应该记录实际支付的代币数量", async function () {
             await productSubscription.connect(user1).purchaseProduct(
-                1, 
-                "order-test", 
-                await mockUSDT.getAddress(), 
-                TELEGRAM_USER_ID_1
+                1,
+                "order-test",
+                await mockUSDT.getAddress()
             );
 
-            const records = await productSubscription.getPurchaseRecordsByTelegramUserId(TELEGRAM_USER_ID_1, 1, 10);
+            const records = await productSubscription.getPurchaseRecordsByAddress(await user1.getAddress(), 1, 10);
             expect(records.length).to.equal(1);
             
             // 购买记录中的金额应该是实际支付的USDT数量（6位精度）
@@ -200,10 +195,9 @@ describe("ProductSubscription V2 - Multi-Token Decimal Fix", function () {
 
         it("事件应该记录实际支付的代币数量", async function () {
             const tx = await productSubscription.connect(user1).purchaseProduct(
-                1, 
-                "order-event", 
-                await mockWBTC.getAddress(), 
-                TELEGRAM_USER_ID_1
+                1,
+                "order-event",
+                await mockWBTC.getAddress()
             );
 
             await expect(tx)
@@ -211,7 +205,6 @@ describe("ProductSubscription V2 - Multi-Token Decimal Fix", function () {
                 .withArgs(
                     1, // productId
                     await user1.getAddress(), // buyer
-                    TELEGRAM_USER_ID_1, // userId
                     await ethers.provider.getBlock('latest').then(b => b!.timestamp), // timestamp
                     ethers.parseUnits("100", 8), // 实际支付的WBTC数量 (8位精度)
                     await mockWBTC.getAddress(), // payToken
@@ -252,10 +245,9 @@ describe("ProductSubscription V2 - Multi-Token Decimal Fix", function () {
             
             await expect(
                 productSubscription.connect(user1).purchaseProduct(
-                    1, 
-                    "order-fail", 
-                    await mockUSDT.getAddress(), 
-                    TELEGRAM_USER_ID_1
+                    1,
+                    "order-fail",
+                    await mockUSDT.getAddress()
                 )
             ).to.be.revertedWith("Token not supported or decimals not set");
         });

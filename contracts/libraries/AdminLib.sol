@@ -2,27 +2,33 @@
 pragma solidity ^0.8.26;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ProductItem} from "./ProductLib.sol";
 
 library AdminLib {
-    
+    using SafeERC20 for IERC20;
 
 
     /**
-     * 添加支持的代币
+     * 添加支持的代币 (安全修复版本)
      */
     function addSupportedToken(
         address token,
         mapping(address => bool) storage supportedTokens,
         mapping(address => uint8) storage tokenDecimals
     ) internal {
+        // 先检查是否为合约地址
+        require(token.code.length > 0, "Token decimals call failed - not a valid ERC20 token");
+
         supportedTokens[token] = true;
-        
+
         try ERC20(token).decimals() returns (uint8 decimals) {
-            require(decimals <= 18, "Unsupported decimals");
+            require(decimals > 0 && decimals <= 18, "Unsupported decimals");
             tokenDecimals[token] = decimals;
         } catch {
-            tokenDecimals[token] = 18;
+            // 安全修复：代币不符合 ERC20 标准时直接回滚，而非使用默认值
+            revert("Token decimals call failed - not a valid ERC20 token");
         }
     }
 
@@ -51,11 +57,12 @@ library AdminLib {
         
         if (token == address(0)) {
             require(address(this).balance >= amount, "Insufficient ETH balance");
-            payable(multisigWallet).transfer(amount);
+            (bool ok, ) = payable(multisigWallet).call{value: amount}("");
+            require(ok, "ETH transfer failed");
         } else {
-            ERC20 tokenContract = ERC20(token);
+            IERC20 tokenContract = IERC20(token);
             require(tokenContract.balanceOf(address(this)) >= amount, "Insufficient token balance");
-            tokenContract.transfer(multisigWallet, amount);
+            tokenContract.safeTransfer(multisigWallet, amount);
         }
     }
 
@@ -71,15 +78,16 @@ library AdminLib {
         // 提取ETH
         uint256 ethBalance = address(this).balance;
         if (ethBalance > 0) {
-            payable(multisigWallet).transfer(ethBalance);
+            (bool ok, ) = payable(multisigWallet).call{value: ethBalance}("");
+            require(ok, "ETH transfer failed");
         }
         
         // 提取所有代币
         for (uint256 i = 0; i < tokens.length; i++) {
-            ERC20 token = ERC20(tokens[i]);
+            IERC20 token = IERC20(tokens[i]);
             uint256 balance = token.balanceOf(address(this));
             if (balance > 0) {
-                token.transfer(multisigWallet, balance);
+                token.safeTransfer(multisigWallet, balance);
             }
         }
     }

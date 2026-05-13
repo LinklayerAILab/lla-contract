@@ -8,25 +8,37 @@ library DecimalConversionLib {
     uint8 public constant BASE_DECIMALS = 18;
 
     /**
-     * 根据代币精度转换产品价格
+     * 根据代币精度转换产品价格 (修复版本 - 向上取整)
      * @param baseAmount 基准价格 (产品存储的原始价格，假设为18位精度)
      * @param tokenDecimal 代币精度
      * @return 转换后的实际支付金额
      */
     function convertPriceForToken(uint256 baseAmount, uint8 tokenDecimal) internal pure returns (uint256) {
         require(tokenDecimal > 0, "Token not supported or decimals not set");
-        
+
         // 如果代币精度等于基准精度，直接返回
         if (tokenDecimal == BASE_DECIMALS) {
             return baseAmount;
         }
-        
+
         // 如果代币精度小于基准精度，需要缩小金额
         if (tokenDecimal < BASE_DECIMALS) {
             uint8 decimalDiff = BASE_DECIMALS - tokenDecimal;
-            return baseAmount / (10 ** decimalDiff);
+            uint256 divisor = 10 ** decimalDiff;
+
+            // 防止金额过小导致转换后为0（需要在计算前检查）
+            require(baseAmount >= divisor, "Amount too small after conversion");
+
+            // 安全修复：向上取整，防止用户少付款
+            // 例如: 1.7 USDT (18位) -> USDC (6位) 应该是 2 USDC 而不是 1 USDC
+            uint256 result = baseAmount / divisor;
+            if (baseAmount % divisor != 0) {
+                result += 1; // 向上取整
+            }
+
+            return result;
         }
-        
+
         // 如果代币精度大于基准精度，需要放大金额（这种情况不应该出现，因为限制最大18位）
         // 但为了完整性保留此逻辑
         uint8 expandDiff = tokenDecimal - BASE_DECIMALS;

@@ -1,0 +1,30 @@
+{
+  "network": "bsctest",
+  "contractName": "LLA0",
+  "contractAddress": "0x5C44e124b434ab6A3741E1601e3001958e389A04",
+  "deployer": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+  "deploymentTxHash": "0xf90733d5aedd8c3d1eebb7f2ef7349e3ae54b326f76939fed4e392d68852d979",
+  "timestamp": "2025-11-18T01:34:15.546Z",
+  "networkInfo": {
+    "chainId": "97",
+    "blockHeight": "73383349",
+    "networkName": "bsctest"
+  },
+  "tokenInfo": {
+    "name": "LLA0",
+    "symbol": "LA0",
+    "decimals": "18",
+    "maxSupply": "625000000.0",
+    "initialSupply": "0.0"
+  },
+  "roles": {
+    "defaultAdmin": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+    "pauser": "0xB9cB4030e6543E4C93492879e31e3899aDFfd5a5",
+    "minter": "0xBa7B3387D88Bd7675DE8B492a9067dc6B7A59311"
+  },
+  "verification": {
+    "adminRoleAssigned": true,
+    "pauserRoleAssigned": true,
+    "minterRoleAssigned": true
+  }
+}
