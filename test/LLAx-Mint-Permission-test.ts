@@ -4,53 +4,86 @@ import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 import { ethers } from "hardhat";
 import { ContractFactory } from "ethers";
 
-describe("LLAx Token - Fixed Supply Regression", function () {
+describe("LLAx Token - Mint Permission", function () {
   let LLAxFactory: ContractFactory;
   let llax: LLAx;
   let defaultAdmin: HardhatEthersSigner;
   let pauser: HardhatEthersSigner;
-  let initialHolder: HardhatEthersSigner;
+  let minter: HardhatEthersSigner;
   let user1: HardhatEthersSigner;
 
   const MAX_SUPPLY = ethers.parseEther("100000000000");
+  const MINTER_ROLE = ethers.id("MINTER_ROLE");
 
   before(async function () {
-    [defaultAdmin, pauser, initialHolder, user1] = await ethers.getSigners();
+    [defaultAdmin, pauser, minter, user1] = await ethers.getSigners();
   });
 
   beforeEach(async function () {
     LLAxFactory = await ethers.getContractFactory("LLAx");
     llax = (await LLAxFactory.deploy(
       defaultAdmin.address,
-      pauser.address,
-      initialHolder.address
+      pauser.address
     )) as LLAx;
     await llax.waitForDeployment();
   });
 
-  it("deploys with all tokens minted to the initial holder", async function () {
+  it("deploys with zero total supply", async function () {
+    expect(await llax.totalSupply()).to.equal(0);
+  });
+
+  it("exposes MINTER_ROLE", async function () {
+    expect(llax.interface.getFunction("MINTER_ROLE")).to.not.equal(null);
+  });
+
+  it("exposes a public mint function", async function () {
+    expect(llax.interface.getFunction("mint")).to.not.equal(null);
+  });
+
+  it("admin can grant MINTER_ROLE and mint tokens", async function () {
+    await llax.connect(defaultAdmin).grantRole(MINTER_ROLE, minter.address);
+
+    const mintAmount = ethers.parseEther("1000000");
+    await expect(llax.connect(minter).mint(user1.address, mintAmount))
+      .to.emit(llax, "Transfer")
+      .withArgs(ethers.ZeroAddress, user1.address, mintAmount);
+
+    expect(await llax.totalSupply()).to.equal(mintAmount);
+    expect(await llax.balanceOf(user1.address)).to.equal(mintAmount);
+  });
+
+  it("mint reverts when exceeding MAX_SUPPLY", async function () {
+    await llax.connect(defaultAdmin).grantRole(MINTER_ROLE, minter.address);
+
+    await expect(llax.connect(minter).mint(user1.address, MAX_SUPPLY + 1n))
+      .to.be.revertedWith("LLAx: exceeds max supply");
+  });
+
+  it("non-minter cannot mint", async function () {
+    await expect(
+      llax.connect(user1).mint(user1.address, ethers.parseEther("1"))
+    ).to.be.revertedWithCustomError(llax, "AccessControlUnauthorizedAccount");
+  });
+
+  it("mint up to MAX_SUPPLY succeeds", async function () {
+    await llax.connect(defaultAdmin).grantRole(MINTER_ROLE, minter.address);
+    await expect(llax.connect(minter).mint(user1.address, MAX_SUPPLY))
+      .to.emit(llax, "Transfer");
     expect(await llax.totalSupply()).to.equal(MAX_SUPPLY);
-    expect(await llax.balanceOf(initialHolder.address)).to.equal(MAX_SUPPLY);
   });
 
-  it("does not expose MINTER_ROLE", function () {
-    expect(llax.interface.getFunction("MINTER_ROLE")).to.equal(null);
-  });
+  it("burned tokens free up supply for re-minting", async function () {
+    await llax.connect(defaultAdmin).grantRole(MINTER_ROLE, minter.address);
+    await llax.connect(minter).mint(minter.address, MAX_SUPPLY);
 
-  it("does not expose a public mint function", function () {
-    expect(llax.interface.getFunction("mint")).to.equal(null);
-  });
-
-  it("cannot re-mint burned tokens because no mint entrypoint exists", async function () {
     const burnAmount = ethers.parseEther("5000000");
-
-    await llax.connect(initialHolder).burn(burnAmount);
+    await llax.connect(minter).burn(burnAmount);
 
     expect(await llax.totalSupply()).to.equal(MAX_SUPPLY - burnAmount);
-    expect(() => llax.interface.encodeFunctionData("mint", [user1.address, burnAmount])).to.throw();
-  });
 
-  it("admin cannot create a minter role through the removed role getter", function () {
-    expect(() => llax.interface.encodeFunctionData("MINTER_ROLE", [])).to.throw();
+    // Can re-mint the burned amount
+    await expect(llax.connect(minter).mint(user1.address, burnAmount))
+      .to.emit(llax, "Transfer");
+    expect(await llax.totalSupply()).to.equal(MAX_SUPPLY);
   });
 });

@@ -9,21 +9,25 @@ import {ERC20Permit} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20P
 
 contract LLAx is ERC20, ERC20Pausable, AccessControl, ERC20Permit {
     bytes32 public constant PAUSER_ROLE = keccak256("PAUSER_ROLE");
+    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
     uint256 public constant MAX_SUPPLY = 100_000_000_000 * 1e18;
 
     event Burned(address indexed burner, uint256 amount);
 
-    constructor(address defaultAdmin, address pauser, address initialHolder)
+    constructor(address defaultAdmin, address pauser)
         ERC20("LLAx", "LLAx")
         ERC20Permit("LLAx")
     {
         require(defaultAdmin != address(0), "LLAx: admin is zero address");
         require(pauser != address(0), "LLAx: pauser is zero address");
-        require(initialHolder != address(0), "LLAx: initial holder is zero address");
 
         _grantRole(DEFAULT_ADMIN_ROLE, defaultAdmin);
         _grantRole(PAUSER_ROLE, pauser);
-        _mint(initialHolder, MAX_SUPPLY);
+    }
+
+    function mint(address to, uint256 amount) external onlyRole(MINTER_ROLE) {
+        require(totalSupply() + amount <= MAX_SUPPLY, "LLAx: exceeds max supply");
+        _mint(to, amount);
     }
 
     function burn(uint256 amount) public {

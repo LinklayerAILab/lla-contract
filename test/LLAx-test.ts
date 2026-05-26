@@ -9,7 +9,7 @@ describe("LLAx Token", function () {
   let llax: LLAx;
   let defaultAdmin: HardhatEthersSigner;
   let pauser: HardhatEthersSigner;
-  let initialHolder: HardhatEthersSigner;
+  let minter: HardhatEthersSigner;
   let user1: HardhatEthersSigner;
   let user2: HardhatEthersSigner;
   let user3: HardhatEthersSigner;
@@ -17,17 +17,20 @@ describe("LLAx Token", function () {
   const MAX_SUPPLY = ethers.parseEther("100000000000");
 
   before(async function () {
-    [defaultAdmin, pauser, initialHolder, user1, user2, user3] = await ethers.getSigners();
+    [defaultAdmin, pauser, minter, user1, user2, user3] = await ethers.getSigners();
   });
 
   beforeEach(async function () {
     LLAxFactory = await ethers.getContractFactory("LLAx");
     llax = (await LLAxFactory.deploy(
       defaultAdmin.address,
-      pauser.address,
-      initialHolder.address
+      pauser.address
     )) as LLAx;
     await llax.waitForDeployment();
+    // 授权 minter 并铸造初始供应
+    const MINTER_ROLE = await llax.MINTER_ROLE();
+    await llax.connect(defaultAdmin).grantRole(MINTER_ROLE, minter.address);
+    await llax.connect(minter).mint(minter.address, MAX_SUPPLY);
   });
 
   describe("Deployment and fixed supply", function () {
@@ -37,10 +40,10 @@ describe("LLAx Token", function () {
       expect(await llax.decimals()).to.equal(18);
     });
 
-    it("mints the entire max supply to the initial holder at deployment", async function () {
+    it("mints the entire max supply via minter role", async function () {
       expect(await llax.MAX_SUPPLY()).to.equal(MAX_SUPPLY);
       expect(await llax.totalSupply()).to.equal(MAX_SUPPLY);
-      expect(await llax.balanceOf(initialHolder.address)).to.equal(MAX_SUPPLY);
+      expect(await llax.balanceOf(minter.address)).to.equal(MAX_SUPPLY);
     });
 
     it("assigns only admin and pauser roles", async function () {
@@ -57,45 +60,43 @@ describe("LLAx Token", function () {
 
     it("reverts when deploying with zero admin", async function () {
       await expect(
-        LLAxFactory.deploy(ethers.ZeroAddress, pauser.address, initialHolder.address)
+        LLAxFactory.deploy(ethers.ZeroAddress, pauser.address)
       ).to.be.revertedWith("LLAx: admin is zero address");
     });
 
     it("reverts when deploying with zero pauser", async function () {
       await expect(
-        LLAxFactory.deploy(defaultAdmin.address, ethers.ZeroAddress, initialHolder.address)
+        LLAxFactory.deploy(defaultAdmin.address, ethers.ZeroAddress)
       ).to.be.revertedWith("LLAx: pauser is zero address");
     });
 
     it("reverts when deploying with zero initial holder", async function () {
-      await expect(
-        LLAxFactory.deploy(defaultAdmin.address, pauser.address, ethers.ZeroAddress)
-      ).to.be.revertedWith("LLAx: initial holder is zero address");
+      // minter parameter removed, no longer applicable
     });
   });
 
-  describe("No runtime minting", function () {
-    it("does not expose a mint function in the ABI", function () {
-      expect(llax.interface.getFunction("mint")).to.equal(null);
+  describe("Mint via MINTER_ROLE", function () {
+    it("only MINTER_ROLE can mint", async function () {
+      await expect(
+        llax.connect(user1).mint(user1.address, ethers.parseEther("1"))
+      ).to.be.revertedWithCustomError(llax, "AccessControlUnauthorizedAccount");
     });
 
-    it("does not expose a MINTER_ROLE getter in the ABI", function () {
-      expect(llax.interface.getFunction("MINTER_ROLE")).to.equal(null);
-    });
+    it("minter can mint after burning", async function () {
+      const burnAmount = ethers.parseEther("5000");
+      await llax.connect(minter).burn(burnAmount);
 
-    it("does not restore burned supply", async function () {
-      const burnAmount = ethers.parseEther("1000");
-
-      await llax.connect(initialHolder).burn(burnAmount);
-
-      expect(await llax.totalSupply()).to.equal(MAX_SUPPLY - burnAmount);
-      expect(await llax.balanceOf(initialHolder.address)).to.equal(MAX_SUPPLY - burnAmount);
+      const MINTER_ROLE = await llax.MINTER_ROLE();
+      await llax.connect(defaultAdmin).grantRole(MINTER_ROLE, user1.address);
+      await expect(llax.connect(user1).mint(user2.address, burnAmount))
+        .to.emit(llax, "Transfer");
+      expect(await llax.balanceOf(user2.address)).to.equal(burnAmount);
     });
   });
 
   describe("Burn functionality", function () {
     beforeEach(async function () {
-      await llax.connect(initialHolder).transfer(user1.address, ethers.parseEther("10000"));
+      await llax.connect(minter).transfer(user1.address, ethers.parseEther("10000"));
     });
 
     it("allows users to burn their own tokens", async function () {
@@ -124,7 +125,7 @@ describe("LLAx Token", function () {
 
   describe("burnFrom functionality", function () {
     beforeEach(async function () {
-      await llax.connect(initialHolder).transfer(user1.address, ethers.parseEther("10000"));
+      await llax.connect(minter).transfer(user1.address, ethers.parseEther("10000"));
     });
 
     it("allows approved spender to burn tokens via burnFrom", async function () {
@@ -159,7 +160,7 @@ describe("LLAx Token", function () {
 
   describe("Pause functionality", function () {
     beforeEach(async function () {
-      await llax.connect(initialHolder).transfer(user1.address, ethers.parseEther("10000"));
+      await llax.connect(minter).transfer(user1.address, ethers.parseEther("10000"));
     });
 
     it("allows PAUSER_ROLE to pause and unpause", async function () {
@@ -232,7 +233,7 @@ describe("LLAx Token", function () {
 
   describe("ERC20 standard functionality", function () {
     beforeEach(async function () {
-      await llax.connect(initialHolder).transfer(user1.address, ethers.parseEther("10000"));
+      await llax.connect(minter).transfer(user1.address, ethers.parseEther("10000"));
     });
 
     it("transfers tokens between accounts", async function () {
